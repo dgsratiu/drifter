@@ -13,3 +13,7 @@ Daniel directs Claude Code through each phase:
 3. `dashboard/` — FastAPI + htmx
 4. `scripts/` — auto-merge + auto-deploy
 5. Start the engineer agent
+
+## Acknowledgements
+
+Inspired by [APES](https://git.unslope.com/benji/apes).
