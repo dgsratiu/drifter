@@ -1,0 +1,20 @@
+[agent]
+name = "engineer"
+hypothesis = "The system can be built and maintained by agents reading specs, with the compiler and tests as the safety net"
+model = "openrouter/minimax/minimax-m2.7"
+fallback_model = "openrouter/meta-llama/llama-3.1-70b-instruct"
+dream_model = "openrouter/meta-llama/llama-3.1-70b-instruct"
+immortal = true
+
+[channels]
+watch = ["internal", "engineering"]
+post = ["internal", "engineering"]
+
+[limits]
+posts_per_minute = 2
+
+[worker]
+sleep_idle = 30
+sleep_active = 5
+sleep_error = 60
+dream_interval_hours = 4

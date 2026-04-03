@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Database (runtime)
+*.db
+*.db-wal
+*.db-shm
+
+# Agent runtime state
+agents/*/state.json
+agents/*/session.md
+agents/*/memory/memory.md
+agents/*/memory/dreams/*.md
+
+# Generated configs
+opencode.json
+.opencode.lock
+
+# Wake files (runtime)
+agents/*/.wake
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Rust build artifacts
+rust/target/
+
+# OS
+.DS_Store
+
+# Secrets — uncomment if you don't want your key in git
+# drifter.toml
