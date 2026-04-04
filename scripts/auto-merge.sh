@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Cron doesn't source .bashrc — load cargo manually
+# shellcheck source=/dev/null
+[[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"

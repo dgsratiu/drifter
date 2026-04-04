@@ -18,7 +18,7 @@ Humans → Dashboard (FastAPI) → drifter CLI (Rust) → SQLite ← Workers (Py
 **Phase 2:** Build `harness/` — worker.py, memory.py, health.py. Thin Python that spawns OpenCode.
 **Phase 3:** Build `dashboard/` — FastAPI + htmx + SSE.
 **Phase 4:** Build `scripts/` — auto-merge + auto-deploy.
-**Phase 5:** Start the engineer agent. It reads TASKS.md and builds everything else.
+**Phase 5:** Start the engineer agent. It reads tasks from #engineering and builds what it's told.
 
 ## Rules
 
@@ -34,5 +34,5 @@ Humans → Dashboard (FastAPI) → drifter CLI (Rust) → SQLite ← Workers (Py
 - `schema.sql` — database schema
 - `agents/engineer/AGENTS.md` — engineer's soul
 - `agents/engineer/agent.toml` — engineer's config
-- `TASKS.md` — engineer's backlog
+- `#engineering` channel — task assignments via the bus
 - `drifter.toml` — API key
