@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import os
 import signal
+import sys
 import subprocess
 import tempfile
 import time
@@ -102,9 +103,16 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
             prompt_path = Path(handle.name)
         try:
             command = [opencode_bin(), "run", "--model", model, f"Read {prompt_path} and follow instructions"]
-            with log_path.open("w", encoding="utf-8") as log_file:
-                subprocess.run(command, cwd=cwd, env=opencode_env(project_root, agent),
-                               stdout=log_file, stderr=subprocess.STDOUT, check=True)
+            with log_path.open("wb") as log_file:
+                proc = subprocess.Popen(command, cwd=cwd, env=opencode_env(project_root, agent),
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                for chunk in iter(lambda: proc.stdout.read(4096), b""):
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+                    log_file.write(chunk)
+                proc.wait()
+                if proc.returncode:
+                    raise subprocess.CalledProcessError(proc.returncode, command)
         finally:
             prompt_path.unlink(missing_ok=True)
             _rotate_logs(log_dir)
