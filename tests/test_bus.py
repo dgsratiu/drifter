@@ -21,8 +21,13 @@ DRIFTER_BIN = os.environ.get("DRIFTER_BIN") or os.path.join(
 
 def _run(cmd, cwd, check=True):
     """Run a shell command in the given directory."""
+    env = os.environ.copy()
+    env["GIT_AUTHOR_NAME"] = "Test User"
+    env["GIT_AUTHOR_EMAIL"] = "test@example.com"
+    env["GIT_COMMITTER_NAME"] = "Test User"
+    env["GIT_COMMITTER_EMAIL"] = "test@example.com"
     return subprocess.run(
-        cmd, shell=True, cwd=cwd, capture_output=True, text=True, check=check
+        cmd, shell=True, cwd=cwd, capture_output=True, text=True, check=check, env=env
     )
 
 
