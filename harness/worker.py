@@ -45,6 +45,15 @@ def heartbeat_mode(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip().lower()
 
 
+def has_pending_inbox(paths, config) -> bool:
+    """Quick check: does the agent have unacked inbox items?"""
+    try:
+        items = run_drifter(paths.project_root, "inbox", config.name, "--json", json_output=True)
+        return bool(items)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def nonempty_tensions(path: Path) -> bool:
     return path.exists() and bool(path.read_text(encoding="utf-8").strip())
 
@@ -283,33 +292,35 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
             save_state(paths, state)
             return 0
 
+        # Inbox-first: check for reactive work before heartbeat gates anything
         mode = heartbeat_mode(paths.heartbeat_path)
-        if mode == "die":
+        inbox_pending = has_pending_inbox(paths, config)
+
+        # Die: process any pending inbox first, then exit
+        if mode == "die" and not inbox_pending:
             state["worker_status"] = "dead"
             save_state(paths, state)
             delete_wake_file(paths.agent_dir)
             return 0
-        if mode == "sleep":
-            state["worker_status"] = "sleep"
+
+        # Sleep/blocked: only gate autonomous cycles (browse, dream).
+        # If inbox has items, process them regardless of heartbeat.
+        if mode in ("sleep", "blocked") and not inbox_pending:
+            state["worker_status"] = mode
             state["last_polled_at"] = iso_now()
             save_state(paths, state)
             delete_wake_file(paths.agent_dir)
             if once:
                 return 0
-            time.sleep(config.sleep_idle)
-            continue
-        if mode == "blocked":
-            state["worker_status"] = "blocked"
-            state["last_polled_at"] = iso_now()
-            save_state(paths, state)
-            delete_wake_file(paths.agent_dir)
-            if once:
-                return 0
-            time.sleep(config.sleep_error)
+            time.sleep(config.sleep_error if mode == "blocked" else config.sleep_idle)
             continue
 
         # Determine event
-        if force_dream:
+        if inbox_pending:
+            event = "wake"  # inbox items always trigger a cycle
+        elif mode in ("sleep", "blocked", "die"):
+            event = "poll"  # heartbeat suppresses autonomous cycles
+        elif force_dream:
             event = "dream"
             force_dream = False
         elif once:
