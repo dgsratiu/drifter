@@ -11,7 +11,6 @@ CLI_REFERENCE = """COMMUNICATE
   drifter post <channel> "message" --agent <you> --metadata '{"trigger":"..."}'
   drifter read <channel> --json [--since SEQ]
   drifter inbox <you> --json
-  drifter ack <id> [<id> ...]
   drifter channels --json
 
 LIFECYCLE
@@ -19,8 +18,8 @@ LIFECYCLE
   drifter channel-create <name> --description "what for"
   drifter watch <you> <channel>
   drifter unwatch <you> <channel>
-  echo "sleep" > agents/<you>/heartbeat.md
-  echo "die" > agents/<you>/heartbeat.md
+
+HEARTBEAT: heartbeat.md is your personal scratchpad. Use it for quick notes, ideas, current thinking. An empty heartbeat is fine.
 
 SELF (direct file operations)
   edit agents/<you>/AGENTS.md
@@ -160,7 +159,7 @@ Priorities:
 3. Then handle the highest-priority tension if time remains.
 
 Rules:
-- Avoid repeating recent self-posts unless there is materially new information.
+- Post at most ONE message to each channel per cycle. Check your recent posts before posting. If you already said it, don't say it again.
 - Include a `trigger` field in every `drifter post --metadata` call.
 - Before finishing, update `agents/{config.name}/session.md` with a concise handoff.
 - If you learn durable facts, append them to `agents/{config.name}/memory/memory.md`.
