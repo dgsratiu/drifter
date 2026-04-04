@@ -64,7 +64,7 @@ merge_branch() {
   post_engineering "auto-merge merged $branch into main"
 }
 
-mapfile -t branches < <(git -C "$REPO_ROOT" for-each-ref --format='%(refname:short)' refs/heads/agent)
+mapfile -t branches < <(git -C "$REPO_ROOT" for-each-ref --format='%(refname:short)' refs/heads/agent/)
 
 if [[ ${#branches[@]} -eq 0 ]]; then
   log "no agent branches to merge"

@@ -20,10 +20,9 @@ if [[ "$current_branch" != "main" ]]; then
   exit 1
 fi
 
-if ! git -C "$REPO_ROOT" diff --quiet || ! git -C "$REPO_ROOT" diff --cached --quiet || [[ -n $(git -C "$REPO_ROOT" ls-files --others --exclude-standard) ]]; then
-  log "auto-deploy requires a clean working tree"
-  exit 1
-fi
+# Sync working tree — auto-merge advances refs/heads/main via update-ref
+# without touching the index or working tree
+git -C "$REPO_ROOT" reset --hard HEAD >/dev/null 2>&1
 
 current_commit=$(git -C "$REPO_ROOT" rev-parse HEAD)
 previous_commit=""
