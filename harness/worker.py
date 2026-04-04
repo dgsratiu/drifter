@@ -66,12 +66,17 @@ def agent_lock_path(project_root: Path, agent: str) -> Path:
 
 def opencode_env(project_root: Path, agent: str) -> dict[str, str]:
     release_dir = str(project_root / "rust" / "target" / "release")
+    agent_email = f"{agent}@drifter.local"
     env = {
         "PATH": release_dir + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": os.environ.get("HOME", str(project_root)),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "TERM": "dumb",
         "DRIFTER_AGENT": agent,
+        "GIT_AUTHOR_NAME": agent,
+        "GIT_AUTHOR_EMAIL": agent_email,
+        "GIT_COMMITTER_NAME": agent,
+        "GIT_COMMITTER_EMAIL": agent_email,
     }
     llm = load_drifter_config(project_root).get("llm", {})
     provider = llm.get("provider")
