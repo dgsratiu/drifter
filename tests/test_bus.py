@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-DRIFTER_BIN = os.path.join(
+DRIFTER_BIN = os.environ.get("DRIFTER_BIN") or os.path.join(
     os.path.dirname(__file__), "..", "rust", "target", "debug", "drifter"
 )
 

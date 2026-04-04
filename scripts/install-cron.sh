@@ -9,8 +9,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 CRON_USER="${DRIFTER_USER:-drifter-agent}"
 
-MERGE_JOB="*/2 * * * * $REPO_ROOT/scripts/auto-merge.sh >> $REPO_ROOT/.drifter/logs/auto-merge.log 2>&1"
-DEPLOY_JOB="*/2 * * * * $REPO_ROOT/scripts/auto-deploy.sh >> $REPO_ROOT/.drifter/logs/auto-deploy.log 2>&1"
+MERGE_JOB="*/2 * * * * cd $REPO_ROOT && bash scripts/auto-merge.sh >> $REPO_ROOT/.drifter/logs/auto-merge.log 2>&1"
+DEPLOY_JOB="*/2 * * * * cd $REPO_ROOT && bash scripts/auto-deploy.sh >> $REPO_ROOT/.drifter/logs/auto-deploy.log 2>&1"
 
 # Get existing crontab (suppress "no crontab" warning)
 existing=$(crontab -u "$CRON_USER" -l 2>/dev/null || true)

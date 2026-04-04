@@ -52,6 +52,7 @@ merge_branch() {
     drifter_bin="$REPO_ROOT/rust/target/debug/drifter"
   fi
 
+  export DRIFTER_BIN="$drifter_bin"
   if ! gate_output=$(cd "$gate_tree" && "$drifter_bin" gate 2>&1); then
     post_engineering "$(printf 'auto-merge REJECT %s: gate failed\n%s' "$branch" "$(trim_output "$gate_output")")"
     return
