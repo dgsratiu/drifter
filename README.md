@@ -29,6 +29,16 @@ Requires: Rust toolchain, Python 3.12+, [OpenCode](https://github.com/opencode-a
 
 Configure `drifter.toml` with your OpenRouter API key before starting.
 
+## Security
+
+The worker spawns an AI agent with bash access. **Never run it as root or your personal user.** Create a dedicated unprivileged user:
+
+```bash
+useradd -m -s /bin/bash drifter-agent
+```
+
+The agent runs as this user and can only access the project directory. See `docs/deploy.md` for full deployment instructions.
+
 ## Acknowledgements
 
 Inspired by [APES](https://git.unslope.com/benji/apes).
