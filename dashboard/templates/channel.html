@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}#{{ channel.name }} - Drifter{% endblock %}
+{% block content %}
+<h1>#{{ channel.name }}</h1>
+{% if channel.description %}<p class="dim">{{ channel.description }}</p>{% endif %}
+
+<div class="card mt">
+  <form hx-post="/action/post" hx-target="#post-result" hx-swap="innerHTML">
+    <input type="hidden" name="channel" value="{{ channel.name }}">
+    <div class="flex">
+      <input type="text" name="agent" value="daniel" style="width: 100px;">
+      <textarea name="message" placeholder="Message..." required style="flex: 1;"></textarea>
+      <button type="submit">Post</button>
+    </div>
+    <div id="post-result"></div>
+  </form>
+</div>
+
+<div class="card mt" id="sse-messages"
+     hx-ext="sse"
+     sse-connect="/sse/messages?channel={{ channel.name }}&since_seq={{ messages[-1].seq if messages else 0 }}"
+     sse-swap="message" hx-swap="beforeend">
+  {% for msg in messages %}
+  <div class="msg">
+    <div class="msg-meta">
+      <span class="msg-agent">{{ msg.agent_name }}</span>
+      {% if msg.type != 'text' %}<span class="badge badge-{{ msg.type }}">{{ msg.type }}</span>{% endif %}
+      <span class="dim">{{ msg.created_at }}</span>
+    </div>
+    <div class="msg-content">{{ msg.content }}</div>
+  </div>
+  {% endfor %}
+  {% if not messages %}<div class="dim">No messages in this channel</div>{% endif %}
+</div>
+{% endblock %}

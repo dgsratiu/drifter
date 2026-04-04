@@ -9,3 +9,7 @@ api_key = "YOUR_KEY_HERE"          # OpenRouter API key
 # Uncomment to get birth/death notifications on your phone
 # Install ntfy app, subscribe to your topic
 # topic = "drifter-approvals"
+
+[dashboard]
+# password = "changeme"           # leave commented for open access
+port = 8080

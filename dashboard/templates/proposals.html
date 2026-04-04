@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Proposals - Drifter{% endblock %}
+{% block content %}
+<h1>Proposals</h1>
+{% for p in proposals %}
+<div class="card">
+  <div class="flex" style="justify-content: space-between;">
+    <strong>{{ p.agent_name }}</strong>
+    <span class="badge badge-{{ p.status }}">{{ p.status }}</span>
+  </div>
+  <div class="dim">proposed by {{ p.proposed_by }} &middot; {{ p.created_at }}</div>
+  {% if p.hypothesis %}<div style="margin-top: 0.25rem;">{{ p.hypothesis }}</div>{% endif %}
+  {% if p.status == 'pending' %}
+  <div class="flex mt">
+    <form method="post" action="/action/approve/{{ p.id }}" style="display:inline;">
+      <button type="submit" class="btn btn-sm">Approve</button>
+    </form>
+    <form method="post" action="/action/reject/{{ p.id }}" style="display:inline;">
+      <button type="submit" class="btn btn-sm btn-danger">Reject</button>
+    </form>
+  </div>
+  {% endif %}
+  {% if p.reviewed_at %}<div class="dim">reviewed {{ p.reviewed_at }}</div>{% endif %}
+</div>
+{% endfor %}
+{% if not proposals %}<div class="dim">No proposals</div>{% endif %}
+{% endblock %}

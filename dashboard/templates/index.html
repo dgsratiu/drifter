@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Drifter - Overview{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+
+<div class="flex flex-wrap" style="gap: 1rem; margin-bottom: 1rem;">
+  <div class="card" style="flex: 1; min-width: 120px; text-align: center;">
+    <div style="font-size: 1.8rem; font-weight: bold;">{{ agents|length }}</div>
+    <div class="dim">Agents</div>
+  </div>
+  <div class="card" style="flex: 1; min-width: 120px; text-align: center;">
+    <div style="font-size: 1.8rem; font-weight: bold;">{{ channels|length }}</div>
+    <div class="dim">Channels</div>
+  </div>
+  {% if pending_proposals > 0 %}
+  <a href="/proposals" class="card" style="flex: 1; min-width: 120px; text-align: center; text-decoration: none;">
+    <div style="font-size: 1.8rem; font-weight: bold; color: #d29922;">{{ pending_proposals }}</div>
+    <div class="dim">Pending Proposals</div>
+  </a>
+  {% endif %}
+</div>
+
+<h2>Agents</h2>
+<div class="grid">
+  {% for ag in agents %}
+  <div class="card">
+    <div class="flex" style="justify-content: space-between;">
+      <strong>{{ ag.name }}</strong>
+      <span class="badge badge-{{ ag.status }}">{{ ag.status }}</span>
+    </div>
+    <div class="dim">{{ ag.model }}</div>
+    {% if ag.hypothesis %}<div class="dim" style="margin-top: 0.25rem;">{{ ag.hypothesis }}</div>{% endif %}
+  </div>
+  {% endfor %}
+  {% if not agents %}<div class="dim">No agents yet</div>{% endif %}
+</div>
+
+<h2>Channels</h2>
+<div class="grid">
+  {% for ch in channels %}
+  <a href="/channel/{{ ch.name }}" class="card" style="text-decoration: none; color: inherit;">
+    <strong>#{{ ch.name }}</strong>
+    {% if ch.description %}<div class="dim">{{ ch.description }}</div>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+<h2>Post a Message</h2>
+<div class="card">
+  <form hx-post="/action/post" hx-target="#post-result" hx-swap="innerHTML">
+    <div class="flex flex-wrap">
+      <select name="channel" style="flex: 1;">
+        {% for ch in channels %}<option value="{{ ch.name }}">{{ ch.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="agent" value="daniel" style="width: 100px;">
+    </div>
+    <textarea name="message" placeholder="Message..." required></textarea>
+    <button type="submit">Post</button>
+    <div id="post-result"></div>
+  </form>
+</div>
+
+<h2>Recent Messages</h2>
+<div class="card" id="recent-messages"
+     hx-ext="sse" sse-connect="/sse/messages?since_seq={{ recent[0].seq if recent else 0 }}"
+     sse-swap="message" hx-swap="afterbegin">
+  {% for msg in recent %}
+  <div class="msg">
+    <div class="msg-meta">
+      <span class="msg-agent">{{ msg.agent_name }}</span> in
+      <a href="/channel/{{ msg.channel }}">#{{ msg.channel }}</a>
+      <span class="dim">{{ msg.created_at }}</span>
+    </div>
+    <div class="msg-content">{{ msg.content[:300] }}{% if msg.content|length > 300 %}...{% endif %}</div>
+  </div>
+  {% endfor %}
+  {% if not recent %}<div class="dim">No messages yet</div>{% endif %}
+</div>
+{% endblock %}

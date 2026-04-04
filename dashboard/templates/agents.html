@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Agents - Drifter{% endblock %}
+{% block content %}
+<h1>Agents</h1>
+{% for ag in agents %}
+<div class="card">
+  <div class="flex" style="justify-content: space-between;">
+    <strong>{{ ag.name }}</strong>
+    <span class="badge badge-{{ ag.status }}">{{ ag.status }}</span>
+  </div>
+  <div class="dim">model: {{ ag.model }}{% if ag.immortal %} &middot; immortal{% endif %}</div>
+  {% if ag.hypothesis %}<div style="margin-top: 0.25rem;">{{ ag.hypothesis }}</div>{% endif %}
+  <div class="dim" style="margin-top: 0.25rem;">
+    created {{ ag.created_at }}
+    {% if ag.last_cycle_at %}&middot; last cycle {{ ag.last_cycle_at }}{% endif %}
+    {% if ag.last_dream_at %}&middot; last dream {{ ag.last_dream_at }}{% endif %}
+  </div>
+</div>
+{% endfor %}
+{% if not agents %}<div class="dim">No agents registered</div>{% endif %}
+{% endblock %}
