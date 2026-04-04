@@ -63,16 +63,20 @@ def agent_lock_path(project_root: Path, agent: str) -> Path:
     return project_root / ".drifter" / "locks" / f"{agent}.lock"
 
 
-def opencode_env(project_root: Path) -> dict[str, str]:
-    env = os.environ.copy()
-    # Put the drifter binary on PATH so OpenCode can run drifter commands
+def opencode_env(project_root: Path, agent: str) -> dict[str, str]:
     release_dir = str(project_root / "rust" / "target" / "release")
-    env["PATH"] = release_dir + os.pathsep + env.get("PATH", "")
+    env = {
+        "PATH": release_dir + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", str(project_root)),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "TERM": "dumb",
+        "DRIFTER_AGENT": agent,
+    }
     llm = load_drifter_config(project_root).get("llm", {})
     provider = llm.get("provider")
     api_key = llm.get("api_key")
     if provider == "openrouter" and api_key:
-        env.setdefault("OPENROUTER_API_KEY", api_key)
+        env["OPENROUTER_API_KEY"] = api_key
     return env
 
 
@@ -99,7 +103,7 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
         try:
             command = [opencode_bin(), "run", "--model", model, f"Read {prompt_path} and follow instructions"]
             with log_path.open("w", encoding="utf-8") as log_file:
-                subprocess.run(command, cwd=cwd, env=opencode_env(project_root),
+                subprocess.run(command, cwd=cwd, env=opencode_env(project_root, agent),
                                stdout=log_file, stderr=subprocess.STDOUT, check=True)
         finally:
             prompt_path.unlink(missing_ok=True)
