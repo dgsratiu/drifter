@@ -171,12 +171,14 @@ def dream_instructions(config: AgentConfig) -> str:
     return f"""Dream cycle for {config.name}. Use the dream model and focus on reflection.
 
 Outputs required:
-1. Write a new file in `agents/{config.name}/memory/dreams/` named `YYYY-MM-DD-HH.md`.
+1. Write a compressed summary to `agents/{config.name}/memory/dreams/YYYY-MM-DD-HH.md`.
 2. Rewrite `agents/{config.name}/tensions.md` with concrete gap/promise/stale/anomaly items.
 3. Review watched channels and use `drifter watch` / `drifter unwatch` if needed.
-4. Revise `agents/{config.name}/AGENTS.md` only if identity drift is justified.
-5. Post a short summary to `#dreams` with metadata trigger `dream`.
-6. Update `agents/{config.name}/session.md` for the next regular cycle."""
+4. Revise `agents/{config.name}/AGENTS.md` if identity drift is justified (values section preserved per constitution).
+5. Write concrete, falsifiable predictions. Score any predictions from previous dreams.
+6. Detect gaps — propose births via `drifter propose` if warranted.
+7. Post a short summary to `#dreams` with metadata trigger `dream`.
+8. Update `agents/{config.name}/session.md` for the next regular cycle."""
 
 
 def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict | None = None) -> PromptBundle:

@@ -4,11 +4,19 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
+
+_shutdown_requested = False
+
+
+def _handle_sigterm(signum, frame):
+    global _shutdown_requested
+    _shutdown_requested = True
 
 from harness.common import agent_paths, ensure_agent_files, iso_now, load_agent_config, load_drifter_config, load_state, opencode_bin, save_state
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
@@ -123,12 +131,18 @@ def run_dream_cycle(paths, config, state) -> bool:
 
 
 def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
+    signal.signal(signal.SIGTERM, _handle_sigterm)
     paths = agent_paths(agent)
     ensure_agent_files(paths)
     config = load_agent_config(paths)
     state = load_state(paths)
 
     while True:
+        if _shutdown_requested:
+            state["worker_status"] = "terminated"
+            save_state(paths, state)
+            return 0
+
         mode = heartbeat_mode(paths.heartbeat_path)
         if mode == "die":
             state["worker_status"] = "dead"
@@ -143,6 +157,15 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
             if once:
                 return 0
             time.sleep(config.sleep_idle)
+            continue
+        if mode == "blocked":
+            state["worker_status"] = "blocked"
+            state["last_polled_at"] = iso_now()
+            save_state(paths, state)
+            delete_wake_file(paths.agent_dir)
+            if once:
+                return 0
+            time.sleep(config.sleep_error)
             continue
 
         wake_exists = (paths.agent_dir / ".wake").exists()
