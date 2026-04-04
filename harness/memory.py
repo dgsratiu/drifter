@@ -211,6 +211,7 @@ def compile_dream_prompt(paths: AgentPaths, config: AgentConfig) -> str:
     channels = run_drifter(paths.project_root, "channels", "--json", json_output=True)
     tensions = paths.tensions_path.read_text(encoding="utf-8").strip() if paths.tensions_path.exists() else ""
     memory = paths.memory_path.read_text(encoding="utf-8").strip() if paths.memory_path.exists() else ""
+    self_posts, _ = recent_self_posts(paths, config)
     return "\n\n".join(
         [
             "# Constitution\n" + paths.project_root.joinpath("constitution.md").read_text(encoding="utf-8").strip(),
@@ -218,6 +219,8 @@ def compile_dream_prompt(paths: AgentPaths, config: AgentConfig) -> str:
             "# Drifter CLI Reference\n" + CLI_REFERENCE.strip(),
             "# Dream Instructions\n" + dream_instructions(config),
             "# Current Tensions\n" + (tensions or "None."),
+            "# Recent Self Posts (do NOT repeat these)\n"
+            + ("\n".join(f"- [{item['seq']}] #{item['channel']}: {item['content']}" for item in self_posts) if self_posts else "None."),
             "# Recent Metrics\n" + (json.dumps(metrics, indent=2) if metrics else "None."),
             "# Channel Catalog\n" + (json.dumps(channels, indent=2) if channels else "None."),
             "# Full Memory\n" + (memory or "None."),
