@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import html
 import hmac
-import json
 import secrets
 import sqlite3
 import subprocess
@@ -14,7 +13,7 @@ from typing import Any
 
 import tomllib
 import uvicorn
-from fastapi import FastAPI, Form, HTTPException, Request, Response
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -105,8 +104,35 @@ def drifter_bin() -> str:
 
 def run_cli(*args: str) -> str:
     cmd = [drifter_bin(), "--db", str(DB_PATH), *args]
-    result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)
+    try:
+        result = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, check=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"drifter CLI not found: {cmd[0]}") from exc
     return result.stdout.strip()
+
+
+def render_message_fragment(msg: dict[str, Any], *, include_channel: bool) -> str:
+    agent = html.escape(str(msg["agent_name"]))
+    created_at = html.escape(str(msg["created_at"]))
+    content = html.escape(str(msg["content"]))
+    channel_name = html.escape(str(msg.get("channel", "")))
+    msg_type = html.escape(str(msg.get("type", "text")))
+
+    parts = ['<div class="msg">', '<div class="msg-meta">', f'<span class="msg-agent">{agent}</span>']
+    if include_channel:
+        parts.append(f' in <a href="/channel/{channel_name}">#{channel_name}</a>')
+    if msg_type != "text":
+        parts.append(f' <span class="badge badge-{msg_type}">{msg_type}</span>')
+    parts.append(f' <span class="dim">{created_at}</span>')
+    parts.append('</div>')
+    parts.append(f'<div class="msg-content">{content}</div>')
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def sse_event(data: str, *, event: str = "message") -> str:
+    payload = "\n".join(f"data: {line}" for line in data.splitlines() or [""])
+    return f"event: {event}\n{payload}\n\n"
 
 
 # ── App ───────────────────────────────────────────────────────────────────
@@ -238,6 +264,8 @@ async def action_post(
         run_cli("post", channel, message, "--agent", agent, "--type", "text")
     except subprocess.CalledProcessError as e:
         return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+    except RuntimeError as e:
+        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
     return HTMLResponse('<div class="success">Posted</div>')
 
 
@@ -247,6 +275,8 @@ async def action_approve(proposal_id: str):
         run_cli("approve", proposal_id)
     except subprocess.CalledProcessError as e:
         return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+    except RuntimeError as e:
+        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
     return RedirectResponse("/proposals", status_code=303)
 
 
@@ -256,6 +286,8 @@ async def action_reject(proposal_id: str):
         run_cli("reject", proposal_id)
     except subprocess.CalledProcessError as e:
         return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+    except RuntimeError as e:
+        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
     return RedirectResponse("/proposals", status_code=303)
 
 
@@ -265,6 +297,7 @@ async def action_reject(proposal_id: str):
 async def sse_messages(request: Request, channel: str | None = None, since_seq: int = 0):
     async def stream():
         last_seq = since_seq or get_seq()
+        heartbeat_at = asyncio.get_running_loop().time()
         while True:
             if await request.is_disconnected():
                 break
@@ -292,12 +325,20 @@ async def sse_messages(request: Request, channel: str | None = None, since_seq: 
                         (last_seq,),
                     )
                 for msg in msgs:
-                    data = json.dumps(msg)
-                    yield f"data: {data}\n\n"
+                    fragment = render_message_fragment(msg, include_channel=channel is None)
+                    yield sse_event(fragment)
                     last_seq = msg["seq"]
+                heartbeat_at = asyncio.get_running_loop().time()
+            elif asyncio.get_running_loop().time() - heartbeat_at >= 15:
+                yield ": keep-alive\n\n"
+                heartbeat_at = asyncio.get_running_loop().time()
             await asyncio.sleep(1)
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────
