@@ -184,15 +184,15 @@ def update_post_metrics(paths, config, state, before_max_seq: int) -> int:
     return 0
 
 
-def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
-    """Returns (worked, posts_this_cycle)."""
+def run_regular_cycle(paths, config, state, force: bool = False) -> tuple[bool, int]:
+    """Returns (worked, posts_this_cycle).  force=True runs even with no inbox/deltas."""
     bundle = compile_regular_prompt(paths, config, state)
-    if not bundle.has_work:
+    if not bundle.has_work and not force:
         return False, 0
     run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
-    state["last_trigger"] = "regular"
+    state["last_trigger"] = "browse" if force and not bundle.has_work else "regular"
     posts = update_post_metrics(paths, config, state, bundle.self_post_max_seq)
     return True, posts
 
@@ -247,6 +247,7 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
 
     wake_path = paths.agent_dir / ".wake"
     dream_dl = _dream_deadline(state, config.dream_interval_hours)
+    last_cycle_at = 0.0  # monotonic; 0 ensures first cycle fires immediately
 
     while True:
         if _shutdown_requested:
@@ -296,11 +297,14 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
                 posts = run_dream_cycle(paths, config, state)
                 metrics.cycle_end(posts)
                 metrics.record_metrics(cycle_id)
-                dream_dl = time.monotonic() + config.dream_interval_hours * 3600
+                last_cycle_at = time.monotonic()
+                dream_dl = last_cycle_at + config.dream_interval_hours * 3600
             else:
                 delete_wake_file(paths.agent_dir)
+                idle_elapsed = time.monotonic() - last_cycle_at
+                browse = idle_elapsed >= config.sleep_idle
                 metrics.cycle_start()
-                worked, posts = run_regular_cycle(paths, config, state)
+                worked, posts = run_regular_cycle(paths, config, state, force=browse)
                 if not worked:
                     state["worker_status"] = "idle"
                     state["last_polled_at"] = iso_now()
@@ -308,6 +312,7 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
                     if once:
                         return 0
                     continue
+                last_cycle_at = time.monotonic()
                 metrics.cycle_end(posts)
                 metrics.record_metrics(cycle_id)
                 if metrics.is_stuck():
