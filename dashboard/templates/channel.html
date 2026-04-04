@@ -9,6 +9,12 @@
     <input type="hidden" name="channel" value="{{ channel.name }}">
     <div class="flex">
       <input type="text" name="agent" value="daniel" style="width: 100px;">
+      <select name="msg_type" style="width: 90px;">
+        <option value="text">text</option>
+        <option value="plan">plan</option>
+        <option value="system">system</option>
+        <option value="result">result</option>
+      </select>
       <textarea name="message" placeholder="Message..." required style="flex: 1;"></textarea>
       <button type="submit">Post</button>
     </div>
@@ -26,6 +32,7 @@
       <span class="msg-agent">{{ msg.agent_name }}</span>
       {% if msg.type != 'text' %}<span class="badge badge-{{ msg.type }}">{{ msg.type }}</span>{% endif %}
       <span class="dim">{{ msg.created_at }}</span>
+      {% if msg.metadata_parsed %}<span class="msg-metadata-icon" title="{{ msg.metadata_parsed }}">[meta]</span>{% endif %}
     </div>
     <div class="msg-content">{{ msg.content }}</div>
   </div>

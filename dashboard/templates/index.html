@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Drifter - Overview{% endblock %}
 {% block content %}
+{% if password_warning %}
+<div class="password-warning">No dashboard password set. Configure <code>[dashboard].password</code> in <code>drifter.toml</code>.</div>
+{% endif %}
 <h1>Overview</h1>
 
 <div class="flex flex-wrap" style="gap: 1rem; margin-bottom: 1rem;">
@@ -45,12 +48,30 @@
   {% endfor %}
 </div>
 
+<h2>Create Channel</h2>
+<div class="card">
+  <form hx-post="/action/channel-create" hx-target="#channel-result" hx-swap="innerHTML">
+    <div class="flex flex-wrap">
+      <input type="text" name="name" placeholder="Channel name" required style="flex: 1;">
+      <input type="text" name="description" placeholder="Description (optional)" style="flex: 2;">
+      <button type="submit" class="btn-sm">Create</button>
+    </div>
+    <div id="channel-result"></div>
+  </form>
+</div>
+
 <h2>Post a Message</h2>
 <div class="card">
   <form hx-post="/action/post" hx-target="#post-result" hx-swap="innerHTML">
     <div class="flex flex-wrap">
       <select name="channel" style="flex: 1;">
         {% for ch in channels %}<option value="{{ ch.name }}">{{ ch.name }}</option>{% endfor %}
+      </select>
+      <select name="msg_type" style="width: 90px;">
+        <option value="text">text</option>
+        <option value="plan">plan</option>
+        <option value="system">system</option>
+        <option value="result">result</option>
       </select>
       <input type="text" name="agent" value="daniel" style="width: 100px;">
     </div>
@@ -70,6 +91,7 @@
       <span class="msg-agent">{{ msg.agent_name }}</span> in
       <a href="/channel/{{ msg.channel }}">#{{ msg.channel }}</a>
       <span class="dim">{{ msg.created_at }}</span>
+      {% if msg.metadata %}<span class="msg-metadata-icon" title="{{ msg.metadata }}">[meta]</span>{% endif %}
     </div>
     <div class="msg-content">{{ msg.content[:300] }}{% if msg.content|length > 300 %}...{% endif %}</div>
   </div>

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import html
 import hmac
+import json
 import secrets
 import sqlite3
 import subprocess
@@ -66,6 +67,10 @@ def require_auth(request: Request) -> None:
         raise HTTPException(status_code=401)
 
 
+def password_is_default() -> bool:
+    return not get_dashboard_config().get("password")
+
+
 # ── Database (read-only) ─────────────────────────────────────────────────
 
 def db() -> sqlite3.Connection:
@@ -117,6 +122,7 @@ def render_message_fragment(msg: dict[str, Any], *, include_channel: bool) -> st
     content = html.escape(str(msg["content"]))
     channel_name = html.escape(str(msg.get("channel", "")))
     msg_type = html.escape(str(msg.get("type", "text")))
+    metadata_raw = msg.get("metadata")
 
     parts = ['<div class="msg">', '<div class="msg-meta">', f'<span class="msg-agent">{agent}</span>']
     if include_channel:
@@ -124,6 +130,9 @@ def render_message_fragment(msg: dict[str, Any], *, include_channel: bool) -> st
     if msg_type != "text":
         parts.append(f' <span class="badge badge-{msg_type}">{msg_type}</span>')
     parts.append(f' <span class="dim">{created_at}</span>')
+    if metadata_raw:
+        tooltip = html.escape(metadata_raw)
+        parts.append(f' <span class="msg-metadata-icon" title="{tooltip}">[meta]</span>')
     parts.append('</div>')
     parts.append(f'<div class="msg-content">{content}</div>')
     parts.append('</div>')
@@ -195,7 +204,8 @@ async def index(request: Request):
     )
     channels = query("SELECT name, description FROM channels ORDER BY name")
     recent = query(
-        "SELECT m.seq, m.agent_name, c.name as channel, m.type, m.content, m.created_at "
+        "SELECT m.seq, m.agent_name, c.name as channel, m.type, m.content, "
+        "m.metadata, m.created_at "
         "FROM messages m JOIN channels c ON m.channel_id = c.id "
         "ORDER BY m.seq DESC LIMIT 20"
     )
@@ -206,6 +216,7 @@ async def index(request: Request):
         "channels": channels,
         "recent": recent,
         "pending_proposals": pending[0]["n"] if pending else 0,
+        "password_warning": password_is_default(),
     })
 
 
@@ -220,6 +231,14 @@ async def channel_page(request: Request, name: str):
         (channel["id"],),
     )
     messages.reverse()
+    for msg in messages:
+        if msg["metadata"]:
+            try:
+                msg["metadata_parsed"] = json.dumps(json.loads(msg["metadata"]), indent=2)
+            except json.JSONDecodeError:
+                msg["metadata_parsed"] = msg["metadata"]
+        else:
+            msg["metadata_parsed"] = None
     return templates.TemplateResponse("channel.html", {
         "request": request,
         "channel": channel,
@@ -230,8 +249,11 @@ async def channel_page(request: Request, name: str):
 @app.get("/agents", response_class=HTMLResponse)
 async def agents_page(request: Request):
     agents = query(
-        "SELECT name, model, status, hypothesis, immortal, last_cycle_at, "
-        "last_dream_at, created_at FROM agents ORDER BY name"
+        "SELECT a.name, a.model, a.status, a.hypothesis, a.immortal, "
+        "a.last_cycle_at, a.last_dream_at, a.created_at, "
+        "COALESCE(COUNT(i.id), 0) AS inbox_count "
+        "FROM agents a LEFT JOIN inbox i ON i.agent_name = a.name AND i.acked_at IS NULL "
+        "GROUP BY a.name ORDER BY a.name"
     )
     return templates.TemplateResponse("agents.html", {
         "request": request,
@@ -259,13 +281,14 @@ async def action_post(
     channel: str = Form(...),
     message: str = Form(...),
     agent: str = Form(default="daniel"),
+    msg_type: str = Form(default="text"),
 ):
     try:
-        run_cli("post", channel, message, "--agent", agent, "--type", "text")
+        run_cli("post", channel, message, "--agent", agent, "--type", msg_type)
     except subprocess.CalledProcessError as e:
-        return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+        return HTMLResponse(f'<div class="error">{html.escape(e.stderr)}</div>', status_code=400)
     except RuntimeError as e:
-        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
+        return HTMLResponse(f'<div class="error">{html.escape(str(e))}</div>', status_code=503)
     return HTMLResponse('<div class="success">Posted</div>')
 
 
@@ -274,9 +297,9 @@ async def action_approve(proposal_id: str):
     try:
         run_cli("approve", proposal_id)
     except subprocess.CalledProcessError as e:
-        return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+        return HTMLResponse(f'<div class="error">{html.escape(e.stderr)}</div>', status_code=400)
     except RuntimeError as e:
-        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
+        return HTMLResponse(f'<div class="error">{html.escape(str(e))}</div>', status_code=503)
     return RedirectResponse("/proposals", status_code=303)
 
 
@@ -285,10 +308,38 @@ async def action_reject(proposal_id: str):
     try:
         run_cli("reject", proposal_id)
     except subprocess.CalledProcessError as e:
-        return HTMLResponse(f'<div class="error">{e.stderr}</div>', status_code=400)
+        return HTMLResponse(f'<div class="error">{html.escape(e.stderr)}</div>', status_code=400)
     except RuntimeError as e:
-        return HTMLResponse(f'<div class="error">{e}</div>', status_code=503)
+        return HTMLResponse(f'<div class="error">{html.escape(str(e))}</div>', status_code=503)
     return RedirectResponse("/proposals", status_code=303)
+
+
+@app.post("/action/kill/{agent_name}")
+async def action_kill(agent_name: str):
+    try:
+        run_cli("kill", agent_name)
+    except subprocess.CalledProcessError as e:
+        return HTMLResponse(f'<div class="error">{html.escape(e.stderr)}</div>', status_code=400)
+    except RuntimeError as e:
+        return HTMLResponse(f'<div class="error">{html.escape(str(e))}</div>', status_code=503)
+    return RedirectResponse("/agents", status_code=303)
+
+
+@app.post("/action/channel-create", response_class=HTMLResponse)
+async def action_channel_create(
+    name: str = Form(...),
+    description: str = Form(default=""),
+):
+    try:
+        args = ["channel-create", name]
+        if description.strip():
+            args.extend(["--description", description.strip()])
+        run_cli(*args)
+    except subprocess.CalledProcessError as e:
+        return HTMLResponse(f'<div class="error">{html.escape(e.stderr)}</div>', status_code=400)
+    except RuntimeError as e:
+        return HTMLResponse(f'<div class="error">{html.escape(str(e))}</div>', status_code=503)
+    return HTMLResponse(f'<div class="success">Created #{html.escape(name)}</div>')
 
 
 # ── SSE ───────────────────────────────────────────────────────────────────
@@ -309,7 +360,7 @@ async def sse_messages(request: Request, channel: str | None = None, since_seq: 
                     if ch:
                         msgs = query(
                             "SELECT m.seq, m.agent_name, c.name as channel, m.type, "
-                            "m.content, m.created_at "
+                            "m.content, m.metadata, m.created_at "
                             "FROM messages m JOIN channels c ON m.channel_id = c.id "
                             "WHERE m.channel_id = ? AND m.seq > ? ORDER BY m.seq",
                             (ch["id"], last_seq),
@@ -319,7 +370,7 @@ async def sse_messages(request: Request, channel: str | None = None, since_seq: 
                 else:
                     msgs = query(
                         "SELECT m.seq, m.agent_name, c.name as channel, m.type, "
-                        "m.content, m.created_at "
+                        "m.content, m.metadata, m.created_at "
                         "FROM messages m JOIN channels c ON m.channel_id = c.id "
                         "WHERE m.seq > ? ORDER BY m.seq",
                         (last_seq,),
