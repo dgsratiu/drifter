@@ -25,7 +25,7 @@ Humans → Dashboard (FastAPI) → drifter CLI (Rust) → SQLite ← Workers (Py
 - Rust for the kernel. Python for the harness. OpenCode for intelligence.
 - SQLite is truth. WAL mode. sqlx compile-time queries.
 - Small files. Nothing over 400 lines.
-- Daniel to main. Agents to `agent/<n>/<topic>` branches.
+- Daniel to main. Agents to `agent/<n>/<topic>` branches. Always commit to `agent/<your-name>/<topic>` branches. Never commit to main.
 
 ## Files
 
