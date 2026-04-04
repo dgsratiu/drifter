@@ -219,13 +219,27 @@ def update_post_metrics(paths, config, state, before_max_seq: int) -> int:
     return 0
 
 
+def _ack_inbox(paths, inbox_ids: list[int]) -> None:
+    """Ack inbox items after cycle completes. Worker's job, not the agent's."""
+    for item_id in inbox_ids:
+        try:
+            run_drifter(paths.project_root, "ack", str(item_id))
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+
 def run_regular_cycle(paths, config, state, force: bool = False) -> tuple[bool, int]:
     """Returns (worked, posts_this_cycle).  force=True runs even with no inbox/deltas."""
     bundle = compile_regular_prompt(paths, config, state)
     if not bundle.has_work and not force:
         return False, 0
     working_dir = resolve_working_dir(paths)
-    run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text, working_dir)
+    try:
+        run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text, working_dir)
+    finally:
+        # Ack on both success and failure — agent may have posted replies,
+        # re-processing would create duplicates. (Benji: worker.rs:362-376)
+        _ack_inbox(paths, bundle.inbox_ids)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = "browse" if force and not bundle.has_work else "regular"
