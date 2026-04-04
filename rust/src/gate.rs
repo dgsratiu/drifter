@@ -86,9 +86,16 @@ pub async fn run(project_root: &Path) -> Result<()> {
 
         if has_tests {
             print!("Running tests... ");
+            let drifter_bin = project_root
+                .join("rust")
+                .join("target")
+                .join("debug")
+                .join("drifter");
+            let drifter_bin = drifter_bin.to_string_lossy().to_string();
             let status = Command::new("python3")
                 .args(["-m", "pytest", "tests/", "-x", "--timeout=60", "-q"])
                 .current_dir(project_root)
+                .env("DRIFTER_BIN", &drifter_bin)
                 .status()
                 .await?;
             if status.success() {
