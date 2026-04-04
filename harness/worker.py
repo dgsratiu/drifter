@@ -102,7 +102,20 @@ def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
         stale.unlink(missing_ok=True)
 
 
+SESSION_TIMEOUT = 600  # 10 minutes
+
+
+def _tee_output(proc, log_file):
+    """Copy subprocess stdout to both sys.stdout and log_file until EOF."""
+    for chunk in iter(lambda: proc.stdout.read(4096), b""):
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        log_file.write(chunk)
+
+
 def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, working_dir: Path | None = None) -> None:
+    import threading
+
     log_dir = project_root / ".drifter" / "logs" / agent
     log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -120,11 +133,16 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
             with log_path.open("wb") as log_file:
                 proc = subprocess.Popen(command, cwd=cwd, env=opencode_env(project_root, agent),
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                for chunk in iter(lambda: proc.stdout.read(4096), b""):
-                    sys.stdout.buffer.write(chunk)
-                    sys.stdout.buffer.flush()
-                    log_file.write(chunk)
-                proc.wait()
+                tee = threading.Thread(target=_tee_output, args=(proc, log_file), daemon=True)
+                tee.start()
+                try:
+                    proc.wait(timeout=SESSION_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    log_file.write(f"\n[worker] OpenCode timed out after {SESSION_TIMEOUT}s\n".encode())
+                    return
+                tee.join(timeout=5)
                 if proc.returncode:
                     raise subprocess.CalledProcessError(proc.returncode, command)
         finally:
