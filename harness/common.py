@@ -24,6 +24,7 @@ class AgentPaths:
     config_path: Path
     memory_path: Path
     db_path: Path
+    working_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,24 @@ def load_state(paths: AgentPaths) -> dict[str, Any]:
         return json.loads(paths.state_path.read_text(encoding="utf-8") or "{}")
     except json.JSONDecodeError:
         return {}
+
+
+def resolve_working_dir(paths: AgentPaths) -> Path:
+    """Return the agent's working directory from DB, falling back to project_root.
+
+    If the agent has a working_dir in the DB, return that path relative to
+    project_root. Otherwise return project_root (legacy agents without worktrees).
+    """
+    try:
+        agents = run_drifter(paths.project_root, "agents", "--json", json_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return paths.project_root
+    for agent in agents:
+        if isinstance(agent, dict) and agent.get("name") == paths.agent_dir.name:
+            wd = agent.get("working_dir")
+            if wd:
+                return paths.project_root / wd
+    return paths.project_root
 
 
 def save_state(paths: AgentPaths, state: dict[str, Any]) -> None:

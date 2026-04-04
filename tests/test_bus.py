@@ -148,8 +148,13 @@ class TestPostRead:
         _drifter('post engineering "msg 2" --agent engineer --type system', str(tmp_path))
         _drifter('post engineering "msg 3" --agent engineer --type system', str(tmp_path))
 
-        # Read since seq 2 (should get msg 3 only)
-        result = _drifter("read engineering --since 2 --json", str(tmp_path))
+        # Get all messages to find the seq of msg 2
+        result = _drifter("read engineering --json", str(tmp_path))
+        messages = json.loads(result.stdout)
+        msg2_seq = next(m["seq"] for m in messages if m["content"] == "msg 2")
+
+        # Read since msg 2's seq (should get msg 3 only, since is exclusive)
+        result = _drifter(f"read engineering --since {msg2_seq} --json", str(tmp_path))
         assert result.returncode == 0
         messages = json.loads(result.stdout)
         assert len(messages) == 1
@@ -226,22 +231,14 @@ class TestInboxAck:
         """A watcher should receive inbox entries for channel posts."""
         _init_drifter_project(tmp_path)
 
-        # Engineer watches engineering
-        _drifter("watch engineer engineering", str(tmp_path))
-
-        # Post as system (won't trigger rate limit)
-        _drifter(
-            'post engineering "update" --agent engineer --type system', str(tmp_path)
-        )
-
-        # Poster doesn't get inboxed, so create another agent
         _drifter(
             'birth analyst --soul /dev/null --model "openrouter/auto"', str(tmp_path)
         )
         _drifter("watch analyst engineering", str(tmp_path))
 
+        # Engineer posts (not the watcher, since poster is excluded from inbox)
         _drifter(
-            'post engineering "analyst update" --agent analyst --type system', str(tmp_path)
+            'post engineering "analyst update" --agent engineer --type system', str(tmp_path)
         )
 
         result = _drifter("inbox analyst --json", str(tmp_path))
@@ -260,8 +257,9 @@ class TestInboxAck:
         )
         _drifter("watch analyst engineering", str(tmp_path))
 
+        # Engineer posts so analyst (the watcher) gets an inbox entry
         _drifter(
-            'post engineering "to ack" --agent analyst --type system', str(tmp_path)
+            'post engineering "to ack" --agent engineer --type system', str(tmp_path)
         )
 
         # Verify inbox has entry
@@ -310,8 +308,9 @@ class TestWatcherRouting:
         )
         _drifter("watch analyst engineering", str(tmp_path))
 
+        # Engineer posts so analyst gets inboxed
         _drifter(
-            'post engineering "watched" --agent analyst --type system', str(tmp_path)
+            'post engineering "watched" --agent engineer --type system', str(tmp_path)
         )
 
         result = _drifter("inbox analyst --json", str(tmp_path))
@@ -379,8 +378,9 @@ class TestWakeFiles:
         wake_path = tmp_path / "agents" / "analyst" / ".wake"
         assert not wake_path.exists()
 
+        # Engineer posts so analyst gets wake file
         _drifter(
-            'post engineering "wake up" --agent analyst --type system', str(tmp_path)
+            'post engineering "wake up" --agent engineer --type system', str(tmp_path)
         )
 
         assert wake_path.exists()
@@ -511,7 +511,7 @@ class TestRateLimiting:
         # 2nd post should fail (birth used 2 posts already)
         result2 = _drifter('post engineering "msg 2" --agent engineer', str(tmp_path), check=False)
         assert result2.returncode == 1
-        assert "rate limit" in result2.stdout.lower()
+        assert "rate limit" in result2.stderr.lower()
 
     def test_system_messages_bypass_rate_limit(self, tmp_path):
         """System messages should bypass rate limiting."""
@@ -541,3 +541,54 @@ class TestMetrics:
         assert result.returncode == 0
         metrics = json.loads(result.stdout)
         assert isinstance(metrics, list)
+
+
+# ---------------------------------------------------------------------------
+# Test: per-agent working directories
+# ---------------------------------------------------------------------------
+
+class TestWorkingDirectories:
+    """Verify per-agent working directory creation and DB storage."""
+
+    def test_birth_creates_worktree(self, tmp_path):
+        """Birth should create a git worktree for the new agent."""
+        _init_drifter_project(tmp_path)
+
+        # Initialize git repo (birth needs it for worktree creation)
+        _run("git init", str(tmp_path))
+        _run("git add -A", str(tmp_path))
+        _run("git commit -m 'init'", str(tmp_path))
+
+        _drifter(
+            'birth analyst --soul /dev/null --model "openrouter/auto"', str(tmp_path)
+        )
+
+        worktree = tmp_path / "agents" / "analyst" / "worktree"
+        assert worktree.exists()
+        assert (worktree / "opencode.json").exists()
+
+    def test_birth_stores_working_dir_in_db(self, tmp_path):
+        """Birth should store the relative working_dir in the agents table."""
+        _init_drifter_project(tmp_path)
+
+        _run("git init", str(tmp_path))
+        _run("git add -A", str(tmp_path))
+        _run("git commit -m 'init'", str(tmp_path))
+
+        _drifter(
+            'birth analyst --soul /dev/null --model "openrouter/auto"', str(tmp_path)
+        )
+
+        result = _drifter("agents --json", str(tmp_path))
+        agents = json.loads(result.stdout)
+        analyst = next(a for a in agents if a["name"] == "analyst")
+        assert analyst["working_dir"] == "agents/analyst/worktree"
+
+    def test_engineer_has_no_working_dir(self, tmp_path):
+        """Engineer (born before worktree support) should have null working_dir."""
+        _init_drifter_project(tmp_path)
+
+        result = _drifter("agents --json", str(tmp_path))
+        agents = json.loads(result.stdout)
+        engineer = next(a for a in agents if a["name"] == "engineer")
+        assert engineer["working_dir"] is None

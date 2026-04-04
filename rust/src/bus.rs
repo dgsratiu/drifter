@@ -40,6 +40,7 @@ pub struct Agent {
     pub posts_per_minute: i32,
     pub last_cycle_at: Option<String>,
     pub last_dream_at: Option<String>,
+    pub working_dir: Option<String>,
     pub created_at: String,
 }
 
@@ -259,7 +260,7 @@ pub async fn read_messages(
 pub async fn get_agent(pool: &SqlitePool, name: &str) -> Result<Option<Agent>> {
     Ok(sqlx::query_as::<_, Agent>(
         "SELECT name, model, status, hypothesis, immortal, posts_per_minute, \
-         last_cycle_at, last_dream_at, created_at FROM agents WHERE name = ?",
+         last_cycle_at, last_dream_at, working_dir, created_at FROM agents WHERE name = ?",
     )
     .bind(name)
     .fetch_optional(pool)
@@ -269,7 +270,7 @@ pub async fn get_agent(pool: &SqlitePool, name: &str) -> Result<Option<Agent>> {
 pub async fn list_agents(pool: &SqlitePool) -> Result<Vec<Agent>> {
     Ok(sqlx::query_as::<_, Agent>(
         "SELECT name, model, status, hypothesis, immortal, posts_per_minute, \
-         last_cycle_at, last_dream_at, created_at FROM agents ORDER BY name",
+         last_cycle_at, last_dream_at, working_dir, created_at FROM agents ORDER BY name",
     )
     .fetch_all(pool)
     .await?)
@@ -285,6 +286,19 @@ pub async fn register_agent(
         .bind(name)
         .bind(model)
         .bind(immortal)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn set_agent_working_dir(
+    pool: &SqlitePool,
+    name: &str,
+    working_dir: &str,
+) -> Result<()> {
+    sqlx::query("UPDATE agents SET working_dir = ? WHERE name = ?")
+        .bind(working_dir)
+        .bind(name)
         .execute(pool)
         .await?;
     Ok(())

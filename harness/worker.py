@@ -29,8 +29,11 @@ def _handle_sigterm(signum, frame):
 
 from harness.common import (
     agent_paths, ensure_agent_files, iso_now, load_agent_config,
-    load_drifter_config, load_state, opencode_bin, run_drifter, save_state,
+    load_drifter_config, load_state, opencode_bin, resolve_working_dir,
+    run_drifter, save_state,
 )
+from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
+from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 
@@ -56,6 +59,9 @@ def opencode_lock(lock_path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def agent_lock_path(project_root: Path, agent: str) -> Path:
+    return project_root / ".drifter" / "locks" / f"{agent}.lock"
+
 
 def opencode_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
@@ -77,20 +83,23 @@ def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
         stale.unlink(missing_ok=True)
 
 
-def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str) -> None:
+def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, working_dir: Path | None = None) -> None:
     log_dir = project_root / ".drifter" / "logs" / agent
     log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = log_dir / f"{timestamp}.log"
 
-    with opencode_lock(project_root / ".drifter-opencode.lock"):
+    cwd = working_dir if working_dir and working_dir.exists() else project_root
+    lock = agent_lock_path(project_root, agent)
+
+    with opencode_lock(lock):
         with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=project_root, delete=False, encoding="utf-8") as handle:
             handle.write(prompt)
             prompt_path = Path(handle.name)
         try:
             command = [opencode_bin(), "run", "--model", model, f"Read {prompt_path} and follow instructions"]
             with log_path.open("w", encoding="utf-8") as log_file:
-                subprocess.run(command, cwd=project_root, env=opencode_env(project_root),
+                subprocess.run(command, cwd=cwd, env=opencode_env(project_root),
                                stdout=log_file, stderr=subprocess.STDOUT, check=True)
         finally:
             prompt_path.unlink(missing_ok=True)
@@ -189,7 +198,8 @@ def run_regular_cycle(paths, config, state, force: bool = False) -> tuple[bool, 
     bundle = compile_regular_prompt(paths, config, state)
     if not bundle.has_work and not force:
         return False, 0
-    run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text)
+    working_dir = resolve_working_dir(paths)
+    run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text, working_dir)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = "browse" if force and not bundle.has_work else "regular"
@@ -201,7 +211,8 @@ def run_dream_cycle(paths, config, state) -> int:
     """Returns posts this cycle."""
     prompt = compile_dream_prompt(paths, config)
     _, before_max_seq = recent_self_posts(paths, config)
-    run_opencode_cycle(paths.project_root, config.name, config.dream_model, prompt)
+    working_dir = resolve_working_dir(paths)
+    run_opencode_cycle(paths.project_root, config.name, config.dream_model, prompt, working_dir)
     state["last_dream_at"] = iso_now()
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
