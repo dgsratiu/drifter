@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import fcntl
-import json
 import os
 import signal
 import subprocess
@@ -57,17 +56,6 @@ def opencode_lock(lock_path: Path):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def write_opencode_config(project_root: Path, model: str) -> Path:
-    config = load_drifter_config(project_root)
-    llm = config.get("llm", {})
-    payload = {
-        "provider": llm.get("provider", "openrouter"),
-        "model": model,
-    }
-    path = project_root / "opencode.json"
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return path
-
 
 def opencode_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
@@ -80,27 +68,15 @@ def opencode_env(project_root: Path) -> dict[str, str]:
 
 
 def run_opencode_cycle(project_root: Path, model: str, prompt: str) -> None:
-    backup_path = project_root / "opencode.json.bak"
-    config_path = project_root / "opencode.json"
-    had_existing = config_path.exists()
-    if had_existing:
-        backup_path.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
-
     with opencode_lock(project_root / ".drifter-opencode.lock"):
-        write_opencode_config(project_root, model)
         with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=project_root, delete=False, encoding="utf-8") as handle:
             handle.write(prompt)
             prompt_path = Path(handle.name)
         try:
-            command = [opencode_bin(), "run", "--auto", f"Read {prompt_path} and follow instructions"]
+            command = [opencode_bin(), "run", "--model", model, f"Read {prompt_path} and follow instructions"]
             subprocess.run(command, cwd=project_root, env=opencode_env(project_root), check=True)
         finally:
             prompt_path.unlink(missing_ok=True)
-            if had_existing and backup_path.exists():
-                config_path.write_text(backup_path.read_text(encoding="utf-8"), encoding="utf-8")
-                backup_path.unlink(missing_ok=True)
-            elif not had_existing:
-                config_path.unlink(missing_ok=True)
 
 
 def delete_wake_file(agent_dir: Path) -> None:
