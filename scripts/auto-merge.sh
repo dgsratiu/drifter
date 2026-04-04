@@ -12,8 +12,11 @@ if ! flock -n 9; then
   exit 0
 fi
 
-git -C "$REPO_ROOT" fetch --prune origin
-sync_main_with_origin
+# Sync with origin if remote exists (optional — VPS may be the sole repo)
+if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+  git -C "$REPO_ROOT" fetch --prune origin
+  sync_main_with_origin
+fi
 
 merge_branch() {
   local branch=$1
@@ -35,14 +38,21 @@ merge_branch() {
   git -C "$REPO_ROOT" worktree add --detach "$gate_tree" "$base_commit" >/dev/null
   if ! (
     cd "$gate_tree"
-    git merge --squash --no-commit "origin/$branch" >/dev/null 2>&1
+    git merge --squash --no-commit "$branch" >/dev/null 2>&1
   ); then
     gate_output=$(cd "$gate_tree" && git status --short && git diff --cached --stat || true)
     post_engineering "$(printf 'auto-merge CONFLICT %s: could not apply branch cleanly\n%s' "$branch" "$(trim_output "$gate_output")")"
     return
   fi
 
-  if ! gate_output=$(cd "$gate_tree" && cargo run --quiet --manifest-path rust/Cargo.toml -- gate 2>&1); then
+  # Resolve drifter binary from project root (avoids recompiling in temp worktree)
+  local drifter_bin
+  drifter_bin="$REPO_ROOT/rust/target/release/drifter"
+  if [[ ! -x "$drifter_bin" ]]; then
+    drifter_bin="$REPO_ROOT/rust/target/debug/drifter"
+  fi
+
+  if ! gate_output=$(cd "$gate_tree" && "$drifter_bin" gate 2>&1); then
     post_engineering "$(printf 'auto-merge REJECT %s: gate failed\n%s' "$branch" "$(trim_output "$gate_output")")"
     return
   fi
@@ -52,7 +62,7 @@ merge_branch() {
   if ! merge_output=$(
     cd "$merge_tree" &&
     git checkout -b drifter-merge "$base_commit" >/dev/null 2>&1 &&
-    git merge --no-ff --no-edit "origin/$branch" 2>&1
+    git merge --no-ff --no-edit "$branch" 2>&1
   ); then
     post_engineering "$(printf 'auto-merge REJECT %s: merge to main failed\n%s' "$branch" "$(trim_output "$merge_output")")"
     return
@@ -65,17 +75,20 @@ merge_branch() {
     return
   fi
 
-  if ! git -C "$REPO_ROOT" push origin main >/dev/null 2>&1; then
-    git -C "$REPO_ROOT" update-ref refs/heads/main "$old_main" "$new_main" || true
-    post_engineering "auto-merge REJECT $branch: passed gate but push to origin failed"
-    return
+  # Push to origin if remote exists
+  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+    if ! git -C "$REPO_ROOT" push origin main >/dev/null 2>&1; then
+      git -C "$REPO_ROOT" update-ref refs/heads/main "$old_main" "$new_main" || true
+      post_engineering "auto-merge REJECT $branch: passed gate but push to origin failed"
+      return
+    fi
   fi
 
-  git -C "$REPO_ROOT" push origin --delete "$branch" >/dev/null 2>&1 || true
+  git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
   post_engineering "auto-merge PASS: $branch merged to main"
 }
 
-mapfile -t branches < <(git -C "$REPO_ROOT" branch -r --list 'origin/agent/*' | sed 's|^ *origin/||')
+mapfile -t branches < <(git -C "$REPO_ROOT" for-each-ref --format='%(refname:short)' refs/heads/agent/)
 
 if [[ ${#branches[@]} -eq 0 ]]; then
   log "no agent branches to merge"
@@ -84,6 +97,8 @@ fi
 
 for branch in "${branches[@]}"; do
   log "processing $branch"
-  sync_main_with_origin
+  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+    sync_main_with_origin
+  fi
   merge_branch "$branch"
 done
