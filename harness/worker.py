@@ -98,7 +98,7 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
     lock = agent_lock_path(project_root, agent)
 
     with opencode_lock(lock):
-        with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=project_root, delete=False, encoding="utf-8") as handle:
+        with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=cwd, delete=False, encoding="utf-8") as handle:
             handle.write(prompt)
             prompt_path = Path(handle.name)
         try:
