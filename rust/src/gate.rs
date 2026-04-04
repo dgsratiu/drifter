@@ -86,12 +86,15 @@ pub async fn run(project_root: &Path) -> Result<()> {
 
         if has_tests {
             print!("Running tests... ");
-            let drifter_bin = project_root
-                .join("rust")
-                .join("target")
-                .join("debug")
-                .join("drifter");
-            let drifter_bin = drifter_bin.to_string_lossy().to_string();
+            let drifter_bin = std::env::var("DRIFTER_BIN").unwrap_or_else(|_| {
+                project_root
+                    .join("rust")
+                    .join("target")
+                    .join("debug")
+                    .join("drifter")
+                    .to_string_lossy()
+                    .to_string()
+            });
             let status = Command::new("python3")
                 .args(["-m", "pytest", "tests/", "-x", "--timeout=60", "-q"])
                 .current_dir(project_root)
