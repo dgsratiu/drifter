@@ -5,7 +5,7 @@ First unchecked item is the next task.
 
 ## Harden
 
-- [ ] Test the gate — verify py_compile catches syntax errors, pytest failures block commits, migration safety rejects modified migrations, cargo check catches Rust errors. The gate is the foundation. Test it first.
+- [x] Test the gate — verify py_compile catches syntax errors, pytest failures block commits, migration safety rejects modified migrations, cargo check catches Rust errors. The gate is the foundation. Test it first.
 - [ ] Test bus operations — post, read, inbox/ack cycle, watcher routing, wake file creation, proposals, rate limiting, metrics.
 - [ ] Build per-agent working directories — each agent needs its own opencode.json for concurrent OpenCode sessions. Without this, a second agent can't run alongside the engineer. Build this before the first birth.
 - [ ] Implement dream cycle in worker.py — every N hours, compile a dream-specific prompt (full memory, metrics, all channels, current tensions), spawn OpenCode with dream_model. OpenCode writes dreams/, tensions.md, soul revisions, and posts to #dreams.
