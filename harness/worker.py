@@ -33,8 +33,6 @@ from harness.common import (
     load_drifter_config, load_state, opencode_bin, resolve_working_dir,
     run_drifter, save_state,
 )
-from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
-from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 
