@@ -12,15 +12,26 @@ venv/
 # Agent runtime state
 agents/*/state.json
 agents/*/session.md
+agents/*/heartbeat.md
+agents/*/tensions.md
 agents/*/memory/memory.md
 agents/*/memory/dreams/*.md
 
 # Generated configs
 opencode.json
-.opencode.lock
+
+# Lock files (runtime)
+*.lock
+!rust/Cargo.lock
 
 # Wake files (runtime)
 agents/*/.wake
+
+# Prompt temp files
+drifter-prompt-*.md
+
+# Worker state directory
+.drifter/
 
 # Logs
 *.log
@@ -35,5 +46,5 @@ rust/target/
 # OS
 .DS_Store
 
-# Secrets — uncomment if you don't want your key in git
-# drifter.toml
+# Secrets
+drifter.toml

@@ -29,7 +29,7 @@ def _handle_sigterm(signum, frame):
 
 from harness.common import (
     agent_paths, ensure_agent_files, iso_now, load_agent_config,
-    load_drifter_config, load_state, opencode_bin, save_state,
+    load_drifter_config, load_state, opencode_bin, run_drifter, save_state,
 )
 from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
@@ -193,11 +193,37 @@ def run_dream_cycle(paths, config, state) -> int:
 # ── Main loop ─────────────────────────────────────────────────────────────
 
 
+def ensure_agent_registered(paths, config) -> None:
+    """Register agent in drifter DB if not already present."""
+    try:
+        agents = run_drifter(paths.project_root, "agents", "--json", json_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return  # drifter binary not available or DB not initialized
+    registered = {a["name"] for a in agents if isinstance(a, dict)}
+    if config.name in registered:
+        return
+
+    birth_cmd = ["birth", config.name, "--soul", str(paths.soul_path), "--model", config.model]
+    if config.immortal:
+        birth_cmd.append("--immortal")
+    try:
+        run_drifter(paths.project_root, *birth_cmd)
+    except subprocess.CalledProcessError:
+        pass  # may fail if DB not initialized; worker will retry next startup
+
+    for channel in config.watch_channels:
+        try:
+            run_drifter(paths.project_root, "watch", config.name, channel)
+        except subprocess.CalledProcessError:
+            pass
+
+
 def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
     signal.signal(signal.SIGTERM, _handle_sigterm)
     paths = agent_paths(agent)
     ensure_agent_files(paths)
     config = load_agent_config(paths)
+    ensure_agent_registered(paths, config)
     state = load_state(paths)
     metrics = CycleMetrics(config.name, paths.db_path)
 
