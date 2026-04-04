@@ -43,6 +43,30 @@ post_engineering() {
   fi
 }
 
+sync_main_with_origin() {
+  local local_sha remote_sha
+  local_sha=$(git -C "$REPO_ROOT" rev-parse refs/heads/main)
+  remote_sha=$(git -C "$REPO_ROOT" rev-parse refs/remotes/origin/main 2>/dev/null) || return 0
+
+  if [[ "$local_sha" == "$remote_sha" ]]; then
+    return 0
+  fi
+
+  # Origin is ahead — fast-forward local
+  if git -C "$REPO_ROOT" merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+    git -C "$REPO_ROOT" merge --ff-only "$remote_sha" >/dev/null
+    return 0
+  fi
+
+  # Local is ahead — nothing to do (we'll push later)
+  if git -C "$REPO_ROOT" merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    return 0
+  fi
+
+  log "main has diverged from origin/main"
+  return 1
+}
+
 list_agents() {
   find "$REPO_ROOT/agents" -mindepth 2 -maxdepth 2 -name agent.toml -printf '%h\n' 2>/dev/null \
     | sed "s#^$REPO_ROOT/agents/##" \
@@ -88,6 +112,17 @@ start_workers() {
 }
 
 restart_workers() {
+  # Prefer systemd if units are configured
+  if command -v systemctl >/dev/null 2>&1; then
+    local units
+    mapfile -t units < <(systemctl --user list-units --all 'drifter-worker@*.service' --no-legend --plain 2>/dev/null | awk '{print $1}')
+    if [[ ${#units[@]} -gt 0 ]]; then
+      systemctl --user restart "${units[@]}"
+      return 0
+    fi
+  fi
+
+  # Fallback: PID-based stop + nohup restart
   stop_workers
   start_workers
 }

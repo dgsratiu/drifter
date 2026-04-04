@@ -20,10 +20,6 @@ if [[ "$current_branch" != "main" ]]; then
   exit 1
 fi
 
-# Sync working tree — auto-merge advances refs/heads/main via update-ref
-# without touching the index or working tree
-git -C "$REPO_ROOT" reset --hard HEAD >/dev/null 2>&1
-
 current_commit=$(git -C "$REPO_ROOT" rev-parse HEAD)
 previous_commit=""
 if [[ -f "$LAST_DEPLOY_FILE" ]]; then
@@ -34,6 +30,10 @@ if [[ -n "$previous_commit" && "$current_commit" == "$previous_commit" ]]; then
   log "main unchanged since last deploy"
   exit 0
 fi
+
+# Sync working tree — auto-merge advances refs/heads/main via update-ref
+# without touching the index or working tree
+git -C "$REPO_ROOT" checkout main >/dev/null 2>&1
 
 needs_build=0
 if [[ ! -x "$REPO_ROOT/rust/target/release/drifter" ]]; then
@@ -65,13 +65,18 @@ rollback() {
 log "deploying main at $current_commit"
 if deploy_candidate; then
   printf '%s\n' "$current_commit" >"$LAST_DEPLOY_FILE"
+  post_engineering "auto-deploy OK: deployed ${current_commit:0:12}"
   log "deploy healthy at $current_commit"
   exit 0
 fi
 
 if rollback "$previous_commit"; then
+  run_drifter notify "Deploy ROLLBACK" \
+    "Rolled back from ${current_commit:0:12} to ${previous_commit:0:12} after health check failure" >/dev/null 2>&1 || true
   log "rollback healthy at $previous_commit"
 else
+  run_drifter notify "Deploy FAIL" \
+    "Health check failed at ${current_commit:0:12}, rollback to ${previous_commit:0:12} also failed" >/dev/null 2>&1 || true
   log "rollback failed"
   exit 1
 fi
