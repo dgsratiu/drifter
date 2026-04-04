@@ -125,11 +125,11 @@ async fn get_channel_id(pool: &SqlitePool, name: &str) -> Result<Option<String>>
 
 // ── Sequence ──────────────────────────────────────────────────────────────
 
-async fn next_seq(pool: &SqlitePool) -> Result<i64> {
+async fn next_seq(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>) -> Result<i64> {
     let row = sqlx::query(
         "UPDATE seq_counter SET value = value + 1 WHERE id = 1 RETURNING value",
     )
-    .fetch_one(pool)
+    .fetch_one(tx.as_mut())
     .await?;
     Ok(row.get("value"))
 }
@@ -172,16 +172,15 @@ pub async fn post(
     // Ensure channel exists (auto-create)
     let channel_id = ensure_channel(pool, channel).await?;
 
-    // Get next sequence number
-    let seq = next_seq(pool).await?;
+    // Merge metadata (pure computation, no DB)
+    let merged_meta = merge_metadata(metadata, agent_row.as_ref())?;
 
     // Generate message ID
     let id = uuid::Uuid::new_v4().to_string();
 
-    // Merge metadata
-    let merged_meta = merge_metadata(metadata, agent_row.as_ref())?;
-
-    // Insert message
+    // Atomic: increment seq + insert message in one transaction
+    let mut tx = pool.begin().await?;
+    let seq = next_seq(&mut tx).await?;
     sqlx::query(
         "INSERT INTO messages (id, seq, channel_id, agent_name, type, content, metadata) \
          VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -193,8 +192,9 @@ pub async fn post(
     .bind(msg_type)
     .bind(content)
     .bind(&merged_meta)
-    .execute(pool)
+    .execute(tx.as_mut())
     .await?;
+    tx.commit().await?;
 
     // Route to inboxes
     crate::inbox::route(pool, &id, &channel_id, channel, agent, content, project_root).await?;
