@@ -70,16 +70,31 @@ def opencode_env(project_root: Path) -> dict[str, str]:
     return env
 
 
-def run_opencode_cycle(project_root: Path, model: str, prompt: str) -> None:
+def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
+    """Keep the most recent `keep` log files, delete the rest."""
+    logs = sorted(log_dir.glob("*.log"))
+    for stale in logs[:-keep]:
+        stale.unlink(missing_ok=True)
+
+
+def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str) -> None:
+    log_dir = project_root / ".drifter" / "logs" / agent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    log_path = log_dir / f"{timestamp}.log"
+
     with opencode_lock(project_root / ".drifter-opencode.lock"):
         with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=project_root, delete=False, encoding="utf-8") as handle:
             handle.write(prompt)
             prompt_path = Path(handle.name)
         try:
             command = [opencode_bin(), "run", "--model", model, f"Read {prompt_path} and follow instructions"]
-            subprocess.run(command, cwd=project_root, env=opencode_env(project_root), check=True)
+            with log_path.open("w", encoding="utf-8") as log_file:
+                subprocess.run(command, cwd=project_root, env=opencode_env(project_root),
+                               stdout=log_file, stderr=subprocess.STDOUT, check=True)
         finally:
             prompt_path.unlink(missing_ok=True)
+            _rotate_logs(log_dir)
 
 
 def delete_wake_file(agent_dir: Path) -> None:
@@ -174,7 +189,7 @@ def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
     bundle = compile_regular_prompt(paths, config, state)
     if not bundle.has_work:
         return False, 0
-    run_opencode_cycle(paths.project_root, config.model, bundle.text)
+    run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = "regular"
@@ -186,7 +201,7 @@ def run_dream_cycle(paths, config, state) -> int:
     """Returns posts this cycle."""
     prompt = compile_dream_prompt(paths, config)
     _, before_max_seq = recent_self_posts(paths, config)
-    run_opencode_cycle(paths.project_root, config.dream_model, prompt)
+    run_opencode_cycle(paths.project_root, config.name, config.dream_model, prompt)
     state["last_dream_at"] = iso_now()
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
