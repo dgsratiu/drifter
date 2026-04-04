@@ -134,6 +134,10 @@ fn create_worktree(project_root: &Path, worktree_path: &Path, branch_name: &str)
             &branch,
         ])
         .current_dir(project_root)
+        .env("GIT_AUTHOR_NAME", "Drifter Agent")
+        .env("GIT_AUTHOR_EMAIL", "agent@drifter.local")
+        .env("GIT_COMMITTER_NAME", "Drifter Agent")
+        .env("GIT_COMMITTER_EMAIL", "agent@drifter.local")
         .output()
         .context("failed to create worktree")?;
 
