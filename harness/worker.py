@@ -59,6 +59,9 @@ def opencode_lock(lock_path: Path):
 
 def opencode_env(project_root: Path) -> dict[str, str]:
     env = os.environ.copy()
+    # Put the drifter binary on PATH so OpenCode can run drifter commands
+    release_dir = str(project_root / "rust" / "target" / "release")
+    env["PATH"] = release_dir + os.pathsep + env.get("PATH", "")
     llm = load_drifter_config(project_root).get("llm", {})
     provider = llm.get("provider")
     api_key = llm.get("api_key")
