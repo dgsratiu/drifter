@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Pre-push gate: cargo check, py_compile, migration immutability.
+# Runs against the commits about to be pushed (local_sha..remote_sha).
+
+set -euo pipefail
+
+failed=0
+
+# Read push info from stdin: <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read -r _ local_sha _ remote_sha; do
+  # Skip branch deletions
+  if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+
+  # Determine diff range
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    # New branch — diff against merge-base with main
+    range="$(git merge-base HEAD main 2>/dev/null || echo "$local_sha")..${local_sha}"
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  changed=$(git diff --name-only "$range" 2>/dev/null || true)
+
+  # 1. cargo check if any Rust files changed
+  if echo "$changed" | grep -qE '\.rs$|rust/Cargo\.toml$|rust/Cargo\.lock$'; then
+    echo "pre-push: running cargo check..."
+    if ! cargo check --manifest-path rust/Cargo.toml 2>&1; then
+      echo "FAIL: cargo check failed" >&2
+      failed=1
+    fi
+  fi
+
+  # 2. py_compile on changed .py files
+  py_files=$(echo "$changed" | grep '\.py$' || true)
+  if [ -n "$py_files" ]; then
+    echo "pre-push: running py_compile..."
+    while IFS= read -r f; do
+      if [ -f "$f" ]; then
+        if ! python3 -m py_compile "$f" 2>&1; then
+          echo "FAIL: py_compile failed on $f" >&2
+          failed=1
+        fi
+      fi
+    done <<< "$py_files"
+  fi
+
+  # 3. Reject modified (not added) migrations
+  modified_migrations=$(git diff --diff-filter=M --name-only "$range" -- rust/migrations/ 2>/dev/null || true)
+  if [ -n "$modified_migrations" ]; then
+    echo "FAIL: modified existing migrations:" >&2
+    echo "$modified_migrations" >&2
+    failed=1
+  fi
+
+done
+
+exit $failed
