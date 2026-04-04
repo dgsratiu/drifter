@@ -41,3 +41,21 @@ Ran the engineer agent successfully. It autonomously: read TASKS.md, found the g
 - `agents/engineer/agent.toml` — model update, full config sections
 - `drifter.toml` → gitignored, `drifter.toml.example` added
 - `tests/test_gate.py` — 14 integration tests (committed by the engineer agent)
+
+## Post-push hardening
+
+After pushing to remote, three more worker features were added:
+
+- **PATH prepend:** `opencode_env()` now prepends `rust/target/release/` to PATH so OpenCode sessions can run `drifter` commands without a system-wide symlink.
+- **Per-cycle logging:** OpenCode stdout/stderr captured to `.drifter/logs/<agent>/<YYYYMMDDTHHMMSSz>.log`. Keeps last 200 logs per agent, rotates older ones via `_rotate_logs()`.
+- **Browse cycle:** If `sleep_idle` seconds pass without any cycle, forces a regular cycle even with empty inbox. `last_cycle_at = 0.0` ensures the first cycle fires immediately on startup. Trigger recorded as `"browse"` in state.json.
+
+## Security boundary analysis
+
+Audited agent blast radius before accepting the trust model:
+
+- Agents run as the same user, no OS-level sandboxing (no containers, seccomp, AppArmor, separate user)
+- OpenCode's `external_directory` config is the only technical boundary — blocks writes outside project root (except `/tmp`)
+- Inside the project: agents can run arbitrary bash, read/write any file, access the network, modify other agents' state
+- Constitution is behavioral guidance only, gate is post-commit quality control
+- **Accepted** as sufficient for current deployment — agents are trusted, gate catches mistakes
