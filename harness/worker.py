@@ -8,8 +8,17 @@ import signal
 import subprocess
 import tempfile
 import time
+import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+
+# inotify for sub-second wake; falls back to polling
+try:
+    import inotify_simple
+    _HAS_INOTIFY = True
+except ImportError:
+    _HAS_INOTIFY = False
 
 _shutdown_requested = False
 
@@ -18,7 +27,12 @@ def _handle_sigterm(signum, frame):
     global _shutdown_requested
     _shutdown_requested = True
 
-from harness.common import agent_paths, ensure_agent_files, iso_now, load_agent_config, load_drifter_config, load_state, opencode_bin, save_state
+
+from harness.common import (
+    agent_paths, ensure_agent_files, iso_now, load_agent_config,
+    load_drifter_config, load_state, opencode_bin, save_state,
+)
+from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 
 
@@ -89,45 +103,118 @@ def run_opencode_cycle(project_root: Path, model: str, prompt: str) -> None:
                 config_path.unlink(missing_ok=True)
 
 
-def delete_wake_file(path: Path) -> None:
-    (path / ".wake").unlink(missing_ok=True)
+def delete_wake_file(agent_dir: Path) -> None:
+    (agent_dir / ".wake").unlink(missing_ok=True)
 
 
-def update_post_metrics(paths, config, state, before_max_seq: int) -> None:
+# ── Wake file watching ────────────────────────────────────────────────────
+
+
+def _wait_for_event(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
+    """Block until a wake event, poll timeout, or dream timer fires.
+
+    Returns: 'wake', 'poll', or 'dream'.
+    """
+    if wake_path.exists():
+        return "wake"
+    if _HAS_INOTIFY:
+        return _wait_inotify(wake_path, poll_interval, dream_deadline)
+    return _wait_poll(wake_path, poll_interval, dream_deadline)
+
+
+def _wait_inotify(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
+    watch_dir = wake_path.parent
+    watch_dir.mkdir(parents=True, exist_ok=True)
+    inotify = inotify_simple.INotify()
+    inotify.add_watch(str(watch_dir), inotify_simple.flags.CREATE | inotify_simple.flags.MODIFY)
+    try:
+        while True:
+            now = time.monotonic()
+            if now >= dream_deadline:
+                return "dream"
+            if wake_path.exists():
+                return "wake"
+            timeout_ms = int(min(poll_interval, dream_deadline - now) * 1000)
+            events = inotify.read(timeout=timeout_ms)
+            if wake_path.exists():
+                return "wake"
+            if not events:
+                return "poll"
+    finally:
+        inotify.close()
+
+
+def _wait_poll(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
+    deadline = time.monotonic() + poll_interval
+    while True:
+        now = time.monotonic()
+        if now >= dream_deadline:
+            return "dream"
+        if wake_path.exists():
+            return "wake"
+        if now >= deadline:
+            return "poll"
+        time.sleep(min(2.0, deadline - now, dream_deadline - now))
+
+
+# ── Dream deadline ────────────────────────────────────────────────────────
+
+
+def _dream_deadline(state: dict, interval_hours: int) -> float:
+    """Return monotonic time when next dream is due.  inf if disabled."""
+    if interval_hours <= 0:
+        return float("inf")
+    interval_s = interval_hours * 3600
+    last_dream = state.get("last_dream_at")
+    if not last_dream:
+        return time.monotonic()
+    try:
+        last_dt = datetime.fromisoformat(str(last_dream).replace("Z", "+00:00"))
+        elapsed = max(0.0, (datetime.now(timezone.utc) - last_dt).total_seconds())
+        return time.monotonic() + max(0.0, interval_s - elapsed)
+    except (ValueError, TypeError):
+        return time.monotonic()
+
+
+# ── Cycle helpers ─────────────────────────────────────────────────────────
+
+
+def update_post_metrics(paths, config, state, before_max_seq: int) -> int:
+    """Update state post counters.  Returns posts this cycle (0 or 1+)."""
     _, after_max_seq = recent_self_posts(paths, config)
     if after_max_seq > before_max_seq:
         state["consecutive_cycles_without_post"] = 0
         state["last_post_seq"] = after_max_seq
-    else:
-        state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
+        return 1
+    state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
+    return 0
 
 
-def run_regular_cycle(paths, config, state) -> bool:
+def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
+    """Returns (worked, posts_this_cycle)."""
     bundle = compile_regular_prompt(paths, config, state)
     if not bundle.has_work:
-        return False
+        return False, 0
     run_opencode_cycle(paths.project_root, config.model, bundle.text)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = "regular"
-    update_post_metrics(paths, config, state, bundle.self_post_max_seq)
-    if bundle.inbox_ids:
-        from harness.common import run_drifter
-
-        run_drifter(paths.project_root, "ack", *(str(item) for item in bundle.inbox_ids))
-        state["last_acked_inbox_ids"] = bundle.inbox_ids
-    return True
+    posts = update_post_metrics(paths, config, state, bundle.self_post_max_seq)
+    return True, posts
 
 
-def run_dream_cycle(paths, config, state) -> bool:
+def run_dream_cycle(paths, config, state) -> int:
+    """Returns posts this cycle."""
     prompt = compile_dream_prompt(paths, config)
     _, before_max_seq = recent_self_posts(paths, config)
     run_opencode_cycle(paths.project_root, config.dream_model, prompt)
     state["last_dream_at"] = iso_now()
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
-    update_post_metrics(paths, config, state, before_max_seq)
-    return True
+    return update_post_metrics(paths, config, state, before_max_seq)
+
+
+# ── Main loop ─────────────────────────────────────────────────────────────
 
 
 def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
@@ -136,6 +223,10 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
     ensure_agent_files(paths)
     config = load_agent_config(paths)
     state = load_state(paths)
+    metrics = CycleMetrics(config.name, paths.db_path)
+
+    wake_path = paths.agent_dir / ".wake"
+    dream_dl = _dream_deadline(state, config.dream_interval_hours)
 
     while True:
         if _shutdown_requested:
@@ -168,34 +259,39 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
             time.sleep(config.sleep_error)
             continue
 
-        wake_exists = (paths.agent_dir / ".wake").exists()
-        dream_due = force_dream
-        if not dream_due and config.dream_interval_hours > 0:
-            last_dream = state.get("last_dream_at")
-            if not last_dream:
-                dream_due = True
-            else:
-                from datetime import datetime, timedelta, timezone
+        # Determine event
+        if force_dream:
+            event = "dream"
+            force_dream = False
+        elif once:
+            event = "dream" if time.monotonic() >= dream_dl else "poll"
+        else:
+            event = _wait_for_event(wake_path, config.sleep_idle, dream_dl)
 
-                last_dt = datetime.fromisoformat(str(last_dream).replace("Z", "+00:00"))
-                dream_due = datetime.now(timezone.utc) >= last_dt + timedelta(hours=config.dream_interval_hours)
+        cycle_id = uuid.uuid4().hex[:8]
 
         try:
-            if dream_due:
-                run_dream_cycle(paths, config, state)
-                delay = config.sleep_active
-            elif wake_exists or nonempty_tensions(paths.tensions_path) or once:
-                worked = run_regular_cycle(paths, config, state)
-                delay = config.sleep_active if worked else config.sleep_idle
+            if event == "dream":
+                metrics.cycle_start()
+                posts = run_dream_cycle(paths, config, state)
+                metrics.cycle_end(posts)
+                metrics.record_metrics(cycle_id)
+                dream_dl = time.monotonic() + config.dream_interval_hours * 3600
             else:
-                state["last_polled_at"] = iso_now()
-                state["worker_status"] = "idle"
-                save_state(paths, state)
                 delete_wake_file(paths.agent_dir)
-                if once:
-                    return 0
-                time.sleep(config.sleep_idle)
-                continue
+                metrics.cycle_start()
+                worked, posts = run_regular_cycle(paths, config, state)
+                if not worked:
+                    state["worker_status"] = "idle"
+                    state["last_polled_at"] = iso_now()
+                    save_state(paths, state)
+                    if once:
+                        return 0
+                    continue
+                metrics.cycle_end(posts)
+                metrics.record_metrics(cycle_id)
+                if metrics.is_stuck():
+                    metrics.notify_stuck(paths.project_root)
         except subprocess.CalledProcessError as exc:
             state["worker_status"] = "error"
             state["last_error_at"] = iso_now()
@@ -220,7 +316,7 @@ def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
         if once:
             return 0
         force_dream = False
-        time.sleep(delay)
+        time.sleep(config.sleep_active)
 
 
 def main() -> None:

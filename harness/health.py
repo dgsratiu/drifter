@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
+import subprocess
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from harness.common import agent_paths, ensure_agent_files, load_state
+from harness.common import agent_paths, ensure_agent_files, load_state, run_drifter
 
 
 def parse_iso(value: str | None) -> datetime | None:
@@ -60,6 +64,63 @@ def main() -> None:
     print(f"consecutive_cycles_without_post={report['consecutive_cycles_without_post']}")
     if report["last_error"]:
         print(f"last_error={report['last_error']}")
+
+
+class CycleMetrics:
+    """Tracks cycle health and writes metrics to SQLite."""
+
+    def __init__(self, agent_name: str, db_path: Path):
+        self.agent_name = agent_name
+        self.db_path = db_path
+        self.consecutive_silent = 0
+        self.total_cycles = 0
+        self.total_posts = 0
+        self._cycle_start: float = 0.0
+        self.last_cycle_duration: float = 0.0
+
+    def cycle_start(self) -> None:
+        self._cycle_start = time.monotonic()
+
+    def cycle_end(self, posts_this_cycle: int) -> None:
+        self.total_cycles += 1
+        self.total_posts += posts_this_cycle
+        self.last_cycle_duration = time.monotonic() - self._cycle_start
+        if posts_this_cycle > 0:
+            self.consecutive_silent = 0
+        else:
+            self.consecutive_silent += 1
+
+    def is_stuck(self, threshold: int = 5) -> bool:
+        return self.consecutive_silent >= threshold
+
+    def record_metrics(self, cycle_id: str) -> None:
+        rows = [
+            ("cycle_duration_s", self.last_cycle_duration),
+            ("consecutive_silent", float(self.consecutive_silent)),
+            ("total_cycles", float(self.total_cycles)),
+            ("total_posts", float(self.total_posts)),
+        ]
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.executemany(
+                    "INSERT INTO metrics (agent_name, cycle_id, metric, value, context) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    [(self.agent_name, cycle_id, name, value,
+                      json.dumps({"source": "harness.health"}))
+                     for name, value in rows],
+                )
+        except sqlite3.Error:
+            pass
+
+    def notify_stuck(self, project_root: Path) -> None:
+        try:
+            run_drifter(
+                project_root, "notify",
+                f"Stuck: {self.agent_name}",
+                f"{self.agent_name} has had {self.consecutive_silent} consecutive silent cycles",
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
 
 
 if __name__ == "__main__":
