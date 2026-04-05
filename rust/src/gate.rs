@@ -33,12 +33,17 @@ pub async fn run(project_root: &Path) -> Result<()> {
             .args(["check", "--workspace"])
             .current_dir(project_root.join("rust"))
             .status()
-            .await?;
-        if status.success() {
-            println!("ok");
-        } else {
-            println!("FAIL");
-            passed = false;
+            .await;
+        match status {
+            Ok(s) if s.success() => println!("ok"),
+            Ok(_) => { println!("FAIL"); passed = false; }
+            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+                println!("skipped (cargo not on PATH)");
+            }
+            Err(e) => {
+                println!("FAIL ({e})");
+                passed = false;
+            }
         }
     }
 
