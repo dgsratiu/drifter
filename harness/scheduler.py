@@ -23,12 +23,24 @@ def _log(msg: str) -> None:
     print(f"[{ts}] {msg}", flush=True)
 
 
-def _has_inbox(paths, agent: str) -> bool:
+def _get_inbox(paths, agent: str) -> list[dict]:
+    """Fetch unacked inbox items. Returns [] on error."""
     try:
         items = run_drifter(paths.project_root, "inbox", agent, "--json", json_output=True)
-        return bool(items)
+        return items if isinstance(items, list) else []
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        return []
+
+
+def _ack_inbox(paths, items: list[dict]) -> None:
+    """Ack inbox items directly without spawning a worker."""
+    ids = [str(item["id"]) for item in items]
+    if not ids:
+        return
+    try:
+        run_drifter(paths.project_root, "ack", *ids)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+        pass
 
 
 def _dream_due(state: dict, interval_hours: int = 4) -> bool:
@@ -72,11 +84,18 @@ def main() -> None:
         return
 
     try:
-        # Priority 1: inbox has items → work cycle
-        if _has_inbox(paths, args.agent):
-            _log("inbox has items")
-            _run_worker(args.agent)
-            return
+        # Priority 1: inbox
+        inbox = _get_inbox(paths, args.agent)
+        if inbox:
+            has_actionable = any(item.get("from_agent") != "system" for item in inbox)
+            if has_actionable:
+                _log("inbox has items")
+                _run_worker(args.agent)
+                return
+            else:
+                _log(f"acking {len(inbox)} system-only inbox items")
+                _ack_inbox(paths, inbox)
+                # fall through to dream check — don't return
 
         # Priority 2: dream deadline passed → dream cycle
         state = load_state(paths)
