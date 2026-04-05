@@ -43,6 +43,27 @@ def _ack_inbox(paths, items: list[dict]) -> None:
         pass
 
 
+def _has_rejected_branches(paths, agent: str) -> bool:
+    """Check if this agent has branches in the rejected-branches file."""
+    rejected_path = paths.project_root / ".drifter" / "rejected-branches"
+    if not rejected_path.exists():
+        return False
+    prefix = f"agent/{agent}/"
+    return any(line.startswith(prefix) for line in rejected_path.read_text().splitlines() if line.strip())
+
+
+def _cooldown_elapsed(state: dict, minutes: int = 10) -> bool:
+    """True if enough time has passed since the last regular cycle."""
+    last = state.get("last_cycle_at")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - last_dt).total_seconds() >= minutes * 60
+    except (ValueError, TypeError):
+        return True
+
+
 def _dream_due(state: dict, interval_hours: int = 4) -> bool:
     last = state.get("last_dream_at")
     if not last:
@@ -100,8 +121,14 @@ def main() -> None:
                 _ack_inbox(paths, inbox)
                 # fall through to dream check — don't return
 
-        # Priority 2: dream deadline passed → dream cycle
+        # Priority 2: rejected branches need attention (with cooldown)
         state = load_state(paths)
+        if _has_rejected_branches(paths, args.agent) and _cooldown_elapsed(state):
+            _log("rejected branches need attention")
+            _run_worker(args.agent)
+            return
+
+        # Priority 3: dream deadline passed → dream cycle
         if _dream_due(state):
             _log("dream due")
             _run_worker(args.agent, dream=True)

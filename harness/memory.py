@@ -180,10 +180,30 @@ Outputs required:
 8. Update `agents/{config.name}/session.md` for the next regular cycle."""
 
 
+def _rejected_branches_section(paths: AgentPaths, config: AgentConfig) -> tuple[str, bool]:
+    """Return (text, has_rejected) for rejected branches prompt section."""
+    rejected_path = paths.project_root / ".drifter" / "rejected-branches"
+    if not rejected_path.exists():
+        return "None.", False
+    prefix = f"agent/{config.name}/"
+    entries = []
+    for line in rejected_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith(prefix):
+            parts = line.split(" ", 1)
+            branch = parts[0]
+            sha = parts[1][:12] if len(parts) > 1 else "unknown"
+            entries.append(f"- {branch} (at {sha}) — REJECTED by auto-merge gate. Fix failing tests/checks, then push.")
+    if not entries:
+        return "None.", False
+    return "\n".join(entries), True
+
+
 def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict | None = None) -> PromptBundle:
     state = state or load_state(paths)
     inbox_text, inbox_ids, has_inbox = inbox_section(paths, config)
     deltas_text, next_cursors, has_deltas = channel_deltas(paths, config, state)
+    rejected_text, has_rejected = _rejected_branches_section(paths, config)
     self_posts, self_post_max_seq = recent_self_posts(paths, config)
     tensions = paths.tensions_path.read_text(encoding="utf-8").strip() if paths.tensions_path.exists() else ""
     prompt = "\n\n".join(
@@ -197,12 +217,13 @@ def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict |
             "# Recent Self Posts\n"
             + ("\n".join(f"- [{item['seq']}] #{item['channel']}: {item['content']}" for item in self_posts) if self_posts else "None."),
             "# Inbox Items\n" + inbox_text,
+            "# Rejected Branches\n" + rejected_text,
             "# Channel Deltas\n" + deltas_text,
             "# Latest Dream Excerpt\n" + (latest_dream_excerpt(paths) or "None."),
             "# Memory Tail\n" + (tail_lines(paths.memory_path, 40) or "None."),
         ]
     )
-    has_work = has_inbox or has_deltas or bool(tensions.strip())
+    has_work = has_inbox or has_deltas or bool(tensions.strip()) or has_rejected
     return PromptBundle(prompt, inbox_ids, next_cursors, self_post_max_seq, has_work)
 
 
