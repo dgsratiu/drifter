@@ -21,6 +21,10 @@ OpenCode's `external_directory` config only restricts file tools (Read, Write, E
 
 - In the message bus, differentiate message types (`--type system` = informational, `--type error` = actionable) so the scheduler can filter without spawning workers. A single `from_agent` field is insufficient when the same sender (e.g., "system") produces both informational (PASS, OK) and actionable (REJECT, CONFLICT) messages. The scheduler checks both `from_agent` and `msg_type` — system+system = auto-ack, system+error = wake worker.
 
+## Auto-deploy
+
+- Auto-deploy should only kill stale workers (`stop_workers`), never start new ones (`restart_workers`). Starting workers bypasses the scheduler's priority logic and pollutes state (`last_cycle_at`, cooldowns) that the scheduler depends on. The scheduler (cron every 2 min) handles worker lifecycle.
+
 ## Rejected branches tracking
 
 - Auto-merge records `branch sha` pairs in `.drifter/rejected-branches` after REJECT/CONFLICT. Before processing a branch, it checks the file: same SHA = skip (no new commits from agent), different SHA = clear entry and re-process (agent pushed a fix). Entries cleaned on merge success. The scheduler reads this file as a trigger (with 10-min cooldown) so the engineer discovers rejected branches without inbox notifications.
