@@ -9,6 +9,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 CRON_USER="${DRIFTER_USER:-drifter-agent}"
 
+SCHEDULER_JOB="*/2 * * * * cd $REPO_ROOT && python3 -m harness.scheduler --agent engineer >> $REPO_ROOT/.drifter/logs/scheduler.log 2>&1"
 MERGE_JOB="*/2 * * * * cd $REPO_ROOT && bash scripts/auto-merge.sh >> $REPO_ROOT/.drifter/logs/auto-merge.log 2>&1"
 DEPLOY_JOB="*/2 * * * * cd $REPO_ROOT && bash scripts/auto-deploy.sh >> $REPO_ROOT/.drifter/logs/auto-deploy.log 2>&1"
 
@@ -16,6 +17,10 @@ DEPLOY_JOB="*/2 * * * * cd $REPO_ROOT && bash scripts/auto-deploy.sh >> $REPO_RO
 existing=$(crontab -u "$CRON_USER" -l 2>/dev/null || true)
 
 changed=0
+if ! echo "$existing" | grep -qF "harness.scheduler"; then
+  existing="$existing"$'\n'"$SCHEDULER_JOB"
+  changed=1
+fi
 if ! echo "$existing" | grep -qF "auto-merge.sh"; then
   existing="$existing"$'\n'"$MERGE_JOB"
   changed=1
