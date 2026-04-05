@@ -23,6 +23,23 @@ from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_
 
 
 SESSION_TIMEOUT = 600  # 10 minutes
+MAX_CONSECUTIVE_FAILURES = 3
+
+
+def _log(agent: str, msg: str) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"[{ts}] [{agent}] {msg}", flush=True)
+
+
+def _post_failure_alert(paths, agent: str, failures: int, err_msg: str) -> None:
+    try:
+        run_drifter(
+            paths.project_root, "post", "engineering",
+            f"{agent}: {failures} consecutive failures, backing off — last error: {err_msg}",
+            "--agent", agent, "--type", "error",
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
 
 
 @contextmanager
@@ -97,7 +114,7 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
                     proc.kill()
                     proc.wait()
                     log_file.write(f"\n[worker] OpenCode timed out after {SESSION_TIMEOUT}s\n".encode())
-                    return
+                    raise
                 tee.join(timeout=5)
                 if proc.returncode:
                     raise subprocess.CalledProcessError(proc.returncode, command)
@@ -125,8 +142,20 @@ def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
     working_dir = resolve_working_dir(paths)
     try:
         run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text, working_dir)
-    finally:
-        _ack_inbox(paths, bundle.inbox_ids)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        err_msg = (getattr(exc, "stderr", None) or "").strip() or str(exc)
+        consecutive = int(state.get("consecutive_failures", 0)) + 1
+        state["consecutive_failures"] = consecutive
+        if consecutive >= MAX_CONSECUTIVE_FAILURES:
+            _log(config.name, f"cycle failed {consecutive} times, acking and backing off: {err_msg}")
+            _ack_inbox(paths, bundle.inbox_ids)
+            _post_failure_alert(paths, config.name, consecutive, err_msg)
+        else:
+            _log(config.name, f"cycle failed ({consecutive}/{MAX_CONSECUTIVE_FAILURES}), NOT acking — will retry: {err_msg}")
+        raise
+    _ack_inbox(paths, bundle.inbox_ids)
+    _log(config.name, f"cycle succeeded, acking {len(bundle.inbox_ids)} inbox items")
+    state["consecutive_failures"] = 0
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = "regular"
@@ -212,10 +241,10 @@ def run(agent: str, dream: bool = False) -> int:
             metrics.record_metrics(cycle_id)
             if metrics.is_stuck():
                 metrics.notify_stuck(paths.project_root)
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         state["worker_status"] = "error"
         state["last_error_at"] = iso_now()
-        state["last_error"] = exc.stderr.strip() if exc.stderr else str(exc)
+        state["last_error"] = (getattr(exc, "stderr", None) or "").strip() or str(exc)
         save_state(paths, state)
         return 1
     except FileNotFoundError as exc:
