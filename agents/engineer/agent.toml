@@ -1,6 +1,6 @@
 [agent]
 name = "engineer"
-model = "openrouter/qwen/qwen3.6-plus:free"
+model = "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 immortal = true
 
 [channels]
