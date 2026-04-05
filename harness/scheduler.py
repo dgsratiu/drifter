@@ -87,7 +87,10 @@ def main() -> None:
         # Priority 1: inbox
         inbox = _get_inbox(paths, args.agent)
         if inbox:
-            has_actionable = any(item.get("from_agent") != "system" for item in inbox)
+            has_actionable = any(
+                item.get("from_agent") != "system" or item.get("msg_type", "system") != "system"
+                for item in inbox
+            )
             if has_actionable:
                 _log("inbox has items")
                 _run_worker(args.agent)

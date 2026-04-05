@@ -43,6 +43,13 @@ post_engineering() {
   fi
 }
 
+post_engineering_error() {
+  local message=$1
+  if ! run_drifter post engineering "$message" --agent system --type error >/dev/null; then
+    log "failed to post to #engineering"
+  fi
+}
+
 sync_main_with_origin() {
   local local_sha remote_sha
   local_sha=$(git -C "$REPO_ROOT" rev-parse refs/heads/main)

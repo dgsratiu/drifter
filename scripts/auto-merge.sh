@@ -45,7 +45,8 @@ merge_branch() {
     git merge --squash --no-commit "$branch" >/dev/null 2>&1
   ); then
     gate_output=$(cd "$gate_tree" && git status --short && git diff --cached --stat || true)
-    post_engineering "$(printf 'auto-merge CONFLICT %s: could not apply branch cleanly\n%s' "$branch" "$(trim_output "$gate_output")")"
+    post_engineering_error "$(printf 'auto-merge CONFLICT %s: could not apply branch cleanly\n%s' "$branch" "$(trim_output "$gate_output")")"
+    printf '%s %s\n' "$branch" "$(git -C "$REPO_ROOT" rev-parse "$branch")" >> "$STATE_DIR/rejected-branches"
     return
   fi
 
@@ -58,7 +59,8 @@ merge_branch() {
 
   export DRIFTER_BIN="$drifter_bin"
   if ! gate_output=$(cd "$gate_tree" && "$drifter_bin" gate 2>&1); then
-    post_engineering "$(printf 'auto-merge REJECT %s: gate failed\n%s' "$branch" "$(trim_output "$gate_output")")"
+    post_engineering_error "$(printf 'auto-merge REJECT %s: gate failed\n%s' "$branch" "$(trim_output "$gate_output")")"
+    printf '%s %s\n' "$branch" "$(git -C "$REPO_ROOT" rev-parse "$branch")" >> "$STATE_DIR/rejected-branches"
     return
   fi
 
@@ -69,7 +71,8 @@ merge_branch() {
     git -c user.name="Drifter Agent" -c user.email="agent@drifter.local" checkout -B drifter-merge "$base_commit" >/dev/null 2>&1 &&
     git merge --no-ff --no-edit "$branch" 2>&1
   ); then
-    post_engineering "$(printf 'auto-merge REJECT %s: merge to main failed\n%s' "$branch" "$(trim_output "$merge_output")")"
+    post_engineering_error "$(printf 'auto-merge REJECT %s: merge to main failed\n%s' "$branch" "$(trim_output "$merge_output")")"
+    printf '%s %s\n' "$branch" "$(git -C "$REPO_ROOT" rev-parse "$branch")" >> "$STATE_DIR/rejected-branches"
     return
   fi
 
@@ -84,12 +87,14 @@ merge_branch() {
   if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
     if ! git -C "$REPO_ROOT" push origin main >/dev/null 2>&1; then
       git -C "$REPO_ROOT" update-ref refs/heads/main "$old_main" "$new_main" || true
-      post_engineering "auto-merge REJECT $branch: passed gate but push to origin failed"
+      post_engineering_error "auto-merge REJECT $branch: passed gate but push to origin failed"
+      printf '%s %s\n' "$branch" "$(git -C "$REPO_ROOT" rev-parse "$branch")" >> "$STATE_DIR/rejected-branches"
       return
     fi
   fi
 
   git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
+  sed -i "\|^$branch |d" "$STATE_DIR/rejected-branches" 2>/dev/null || true
   post_engineering "auto-merge PASS: $branch merged to main"
 }
 
@@ -105,8 +110,19 @@ for branch in "${branches[@]}"; do
   if git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" refs/heads/main 2>/dev/null; then
     log "skipping $branch (already merged into main)"
     git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
+    sed -i "\|^$branch |d" "$STATE_DIR/rejected-branches" 2>/dev/null || true
     continue
   fi
+
+  # Skip branches already rejected at this commit (no new commits from agent)
+  branch_sha=$(git -C "$REPO_ROOT" rev-parse "$branch")
+  if grep -q "^$branch $branch_sha$" "$STATE_DIR/rejected-branches" 2>/dev/null; then
+    log "skipping $branch (rejected at ${branch_sha:0:12}, no new commits)"
+    continue
+  fi
+  # Agent pushed a fix — remove old rejection entry and re-process
+  sed -i "\|^$branch |d" "$STATE_DIR/rejected-branches" 2>/dev/null || true
+
   log "processing $branch"
   if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
     sync_main_with_origin

@@ -50,6 +50,7 @@ pub struct InboxItem {
     pub trigger: String,
     pub channel: String,
     pub from_agent: String,
+    pub msg_type: String,
     pub content: String,
     pub seq: i64,
     pub created_at: String,
@@ -334,7 +335,7 @@ pub async fn get_all_agent_names(pool: &SqlitePool) -> Result<Vec<String>> {
 pub async fn get_inbox(pool: &SqlitePool, agent: &str) -> Result<Vec<InboxItem>> {
     Ok(sqlx::query_as::<_, InboxItem>(
         "SELECT i.id, i.trigger, c.name as channel, m.agent_name as from_agent, \
-         m.content, m.seq, i.created_at \
+         m.type as msg_type, m.content, m.seq, i.created_at \
          FROM inbox i \
          JOIN messages m ON i.message_id = m.id \
          JOIN channels c ON i.channel_id = c.id \
