@@ -162,7 +162,9 @@ async fn connect(db_path: &str) -> Result<sqlx::SqlitePool> {
         .connect_with(opts)
         .await?;
 
-    sqlx::migrate!().run(&pool).await?;
+    let mut migrator = sqlx::migrate!();
+    migrator.set_ignore_missing(true);
+    migrator.run(&pool).await?;
 
     Ok(pool)
 }

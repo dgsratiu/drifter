@@ -121,6 +121,15 @@ pub async fn run(project_root: &Path) -> Result<()> {
         passed = false;
     }
 
+    // 6. New migrations — agents cannot create database migrations
+    for f in new_migrations(project_root).await? {
+        println!(
+            "FAIL: agents cannot create database migrations — propose schema changes via the bus: {}",
+            f
+        );
+        passed = false;
+    }
+
     if passed {
         println!("PASS");
     } else {
@@ -149,6 +158,42 @@ async fn untracked_changes(project_root: &Path) -> Result<Vec<String>> {
         .await?;
 
     Ok(lines(&output.stdout))
+}
+
+async fn new_migrations(project_root: &Path) -> Result<Vec<String>> {
+    // Files added to rust/migrations/ (staged but not in HEAD)
+    let output = Command::new("git")
+        .args([
+            "diff",
+            "--diff-filter=A",
+            "--name-only",
+            "HEAD",
+            "--",
+            "rust/migrations/",
+        ])
+        .current_dir(project_root)
+        .output()
+        .await?;
+
+    let mut result = lines(&output.stdout);
+
+    // Also catch untracked migration files
+    let untracked = Command::new("git")
+        .args([
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "rust/migrations/",
+        ])
+        .current_dir(project_root)
+        .output()
+        .await?;
+
+    result.extend(lines(&untracked.stdout));
+    result.sort();
+    result.dedup();
+    Ok(result)
 }
 
 async fn modified_migrations(project_root: &Path) -> Result<Vec<String>> {

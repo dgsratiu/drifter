@@ -46,5 +46,8 @@ rust/target/
 # OS
 .DS_Store
 
+# Internal plans
+docs/plan-semantic-recall.md
+
 # Secrets
 drifter.toml
