@@ -101,6 +101,12 @@ if [[ ${#branches[@]} -eq 0 ]]; then
 fi
 
 for branch in "${branches[@]}"; do
+  # Skip branches already merged into main (stale leftovers from failed branch -D)
+  if git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" refs/heads/main 2>/dev/null; then
+    log "skipping $branch (already merged into main)"
+    git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
+    continue
+  fi
   log "processing $branch"
   if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
     sync_main_with_origin

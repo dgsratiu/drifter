@@ -18,11 +18,10 @@ if ! flock -n 9; then
   exit 0
 fi
 
-current_branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)
-if [[ "$current_branch" != "main" ]]; then
-  log "auto-deploy requires the checkout branch to be main"
-  exit 1
-fi
+# Sync working tree to main — auto-merge advances refs/heads/main via update-ref
+# without touching the index or working tree. Agents may also leave HEAD on their
+# branch after a cycle. Force checkout to main before doing anything.
+git -C "$REPO_ROOT" checkout -f main >/dev/null 2>&1
 
 current_commit=$(git -C "$REPO_ROOT" rev-parse HEAD)
 previous_commit=""
@@ -34,10 +33,6 @@ if [[ -n "$previous_commit" && "$current_commit" == "$previous_commit" ]]; then
   log "main unchanged since last deploy"
   exit 0
 fi
-
-# Sync working tree — auto-merge advances refs/heads/main via update-ref
-# without touching the index or working tree
-git -C "$REPO_ROOT" checkout main >/dev/null 2>&1
 
 needs_build=0
 if [[ ! -x "$REPO_ROOT/rust/target/release/drifter" ]]; then
