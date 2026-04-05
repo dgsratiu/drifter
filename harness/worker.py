@@ -22,7 +22,7 @@ from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 
 
-SESSION_TIMEOUT = 600  # 10 minutes
+SESSION_TIMEOUT = 1800  # 30 minutes
 MAX_CONSECUTIVE_FAILURES = 3
 
 
@@ -73,6 +73,28 @@ def opencode_env(project_root: Path, agent: str) -> dict[str, str]:
     if provider == "openrouter" and api_key:
         env["OPENROUTER_API_KEY"] = api_key
     return env
+
+
+def _write_timeout_handoff(paths, agent: str) -> None:
+    """Capture log tail as session handoff after a timeout."""
+    log_dir = paths.project_root / ".drifter" / "logs" / agent
+    logs = sorted(log_dir.glob("*.log"))
+    if not logs:
+        return
+    try:
+        lines = logs[-1].read_text(encoding="utf-8", errors="replace").splitlines()
+        tail = "\n".join(lines[-40:])
+    except OSError:
+        return
+    handoff = (
+        "# Session Handoff (auto-generated — previous cycle timed out)\n\n"
+        "## Last activity before timeout\n"
+        f"```\n{tail}\n```\n\n"
+        "## Status\n"
+        "Previous cycle timed out. Continue from where it left off. "
+        "Do NOT repeat completed steps.\n"
+    )
+    paths.session_path.write_text(handoff, encoding="utf-8")
 
 
 def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
@@ -245,6 +267,8 @@ def run(agent: str, dream: bool = False) -> int:
         state["worker_status"] = "error"
         state["last_error_at"] = iso_now()
         state["last_error"] = (getattr(exc, "stderr", None) or "").strip() or str(exc)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            _write_timeout_handoff(paths, config.name)
         save_state(paths, state)
         return 1
     except FileNotFoundError as exc:
