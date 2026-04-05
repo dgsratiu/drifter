@@ -47,7 +47,7 @@ deploy_candidate() {
   if [[ $needs_build -eq 1 ]]; then
     cargo build --release --manifest-path "$REPO_ROOT/rust/Cargo.toml"
   fi
-  restart_workers
+  stop_workers
   run_drifter channels >/dev/null
 }
 
@@ -57,7 +57,7 @@ rollback() {
   log "rolling back to $target"
   git -C "$REPO_ROOT" reset --hard "$target"
   cargo build --release --manifest-path "$REPO_ROOT/rust/Cargo.toml"
-  restart_workers
+  stop_workers
   run_drifter channels >/dev/null
 }
 
