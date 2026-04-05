@@ -4,29 +4,14 @@ import argparse
 import fcntl
 import os
 import signal
-import sys
 import subprocess
+import sys
 import tempfile
-import time
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-
-# inotify for sub-second wake; falls back to polling
-try:
-    import inotify_simple
-    _HAS_INOTIFY = True
-except ImportError:
-    _HAS_INOTIFY = False
-
-_shutdown_requested = False
-
-
-def _handle_sigterm(signum, frame):
-    global _shutdown_requested
-    _shutdown_requested = True
-
 
 from harness.common import (
     agent_paths, ensure_agent_files, iso_now, load_agent_config,
@@ -37,23 +22,7 @@ from harness.health import CycleMetrics
 from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_self_posts
 
 
-def heartbeat_mode(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8").strip().lower()
-
-
-def has_pending_inbox(paths, config) -> bool:
-    """Quick check: does the agent have unacked inbox items?"""
-    try:
-        items = run_drifter(paths.project_root, "inbox", config.name, "--json", json_output=True)
-        return bool(items)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
-
-
-def nonempty_tensions(path: Path) -> bool:
-    return path.exists() and bool(path.read_text(encoding="utf-8").strip())
+SESSION_TIMEOUT = 600  # 10 minutes
 
 
 @contextmanager
@@ -65,10 +34,6 @@ def opencode_lock(lock_path: Path):
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-def agent_lock_path(project_root: Path, agent: str) -> Path:
-    return project_root / ".drifter" / "locks" / f"{agent}.lock"
 
 
 def opencode_env(project_root: Path, agent: str) -> dict[str, str]:
@@ -94,17 +59,12 @@ def opencode_env(project_root: Path, agent: str) -> dict[str, str]:
 
 
 def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
-    """Keep the most recent `keep` log files, delete the rest."""
     logs = sorted(log_dir.glob("*.log"))
     for stale in logs[:-keep]:
         stale.unlink(missing_ok=True)
 
 
-SESSION_TIMEOUT = 600  # 10 minutes
-
-
 def _tee_output(proc, log_file):
-    """Copy subprocess stdout to both sys.stdout and log_file until EOF."""
     for chunk in iter(lambda: proc.stdout.read(4096), b""):
         sys.stdout.buffer.write(chunk)
         sys.stdout.buffer.flush()
@@ -112,17 +72,15 @@ def _tee_output(proc, log_file):
 
 
 def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, working_dir: Path | None = None) -> None:
-    import threading
-
     log_dir = project_root / ".drifter" / "logs" / agent
     log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = log_dir / f"{timestamp}.log"
 
     cwd = working_dir if working_dir and working_dir.exists() else project_root
-    lock = agent_lock_path(project_root, agent)
+    lock_path = project_root / ".drifter" / "locks" / f"{agent}.lock"
 
-    with opencode_lock(lock):
+    with opencode_lock(lock_path):
         with tempfile.NamedTemporaryFile("w", suffix=".md", prefix="drifter-prompt-", dir=cwd, delete=False, encoding="utf-8") as handle:
             handle.write(prompt)
             prompt_path = Path(handle.name)
@@ -148,95 +106,10 @@ def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, 
             _rotate_logs(log_dir)
 
 
-def delete_wake_file(agent_dir: Path) -> None:
-    (agent_dir / ".wake").unlink(missing_ok=True)
-
-
-# ── Wake file watching ────────────────────────────────────────────────────
-
-
-def _wait_for_event(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
-    """Block until a wake event, poll timeout, or dream timer fires.
-
-    Returns: 'wake', 'poll', or 'dream'.
-    """
-    if wake_path.exists():
-        return "wake"
-    if _HAS_INOTIFY:
-        return _wait_inotify(wake_path, poll_interval, dream_deadline)
-    return _wait_poll(wake_path, poll_interval, dream_deadline)
-
-
-def _wait_inotify(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
-    watch_dir = wake_path.parent
-    watch_dir.mkdir(parents=True, exist_ok=True)
-    inotify = inotify_simple.INotify()
-    inotify.add_watch(str(watch_dir), inotify_simple.flags.CREATE | inotify_simple.flags.MODIFY)
-    try:
-        while True:
-            now = time.monotonic()
-            if now >= dream_deadline:
-                return "dream"
-            if wake_path.exists():
-                return "wake"
-            timeout_ms = int(min(poll_interval, dream_deadline - now) * 1000)
-            events = inotify.read(timeout=timeout_ms)
-            if wake_path.exists():
-                return "wake"
-            if not events:
-                return "poll"
-    finally:
-        inotify.close()
-
-
-def _wait_poll(wake_path: Path, poll_interval: float, dream_deadline: float) -> str:
-    deadline = time.monotonic() + poll_interval
-    while True:
-        now = time.monotonic()
-        if now >= dream_deadline:
-            return "dream"
-        if wake_path.exists():
-            return "wake"
-        if now >= deadline:
-            return "poll"
-        time.sleep(min(2.0, deadline - now, dream_deadline - now))
-
-
-# ── Dream deadline ────────────────────────────────────────────────────────
-
-
-def _dream_deadline(state: dict, interval_hours: int) -> float:
-    """Return monotonic time when next dream is due.  inf if disabled."""
-    if interval_hours <= 0:
-        return float("inf")
-    interval_s = interval_hours * 3600
-    last_dream = state.get("last_dream_at")
-    if not last_dream:
-        return time.monotonic()
-    try:
-        last_dt = datetime.fromisoformat(str(last_dream).replace("Z", "+00:00"))
-        elapsed = max(0.0, (datetime.now(timezone.utc) - last_dt).total_seconds())
-        return time.monotonic() + max(0.0, interval_s - elapsed)
-    except (ValueError, TypeError):
-        return time.monotonic()
-
-
 # ── Cycle helpers ─────────────────────────────────────────────────────────
 
 
-def update_post_metrics(paths, config, state, before_max_seq: int) -> int:
-    """Update state post counters.  Returns posts this cycle (0 or 1+)."""
-    _, after_max_seq = recent_self_posts(paths, config)
-    if after_max_seq > before_max_seq:
-        state["consecutive_cycles_without_post"] = 0
-        state["last_post_seq"] = after_max_seq
-        return 1
-    state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
-    return 0
-
-
 def _ack_inbox(paths, inbox_ids: list[int]) -> None:
-    """Ack inbox items after cycle completes. Worker's job, not the agent's."""
     for item_id in inbox_ids:
         try:
             run_drifter(paths.project_root, "ack", str(item_id))
@@ -244,23 +117,26 @@ def _ack_inbox(paths, inbox_ids: list[int]) -> None:
             pass
 
 
-def run_regular_cycle(paths, config, state, force: bool = False) -> tuple[bool, int]:
-    """Returns (worked, posts_this_cycle).  force=True runs even with no inbox/deltas."""
+def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
+    """Returns (worked, posts_this_cycle)."""
     bundle = compile_regular_prompt(paths, config, state)
-    if not bundle.has_work and not force:
+    if not bundle.has_work:
         return False, 0
     working_dir = resolve_working_dir(paths)
     try:
         run_opencode_cycle(paths.project_root, config.name, config.model, bundle.text, working_dir)
     finally:
-        # Ack on both success and failure — agent may have posted replies,
-        # re-processing would create duplicates. (Benji: worker.rs:362-376)
         _ack_inbox(paths, bundle.inbox_ids)
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
-    state["last_trigger"] = "browse" if force and not bundle.has_work else "regular"
-    posts = update_post_metrics(paths, config, state, bundle.self_post_max_seq)
-    return True, posts
+    state["last_trigger"] = "regular"
+    _, after_max_seq = recent_self_posts(paths, config)
+    if after_max_seq > bundle.self_post_max_seq:
+        state["consecutive_cycles_without_post"] = 0
+        state["last_post_seq"] = after_max_seq
+        return True, 1
+    state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
+    return True, 0
 
 
 def run_dream_cycle(paths, config, state) -> int:
@@ -272,18 +148,23 @@ def run_dream_cycle(paths, config, state) -> int:
     state["last_dream_at"] = iso_now()
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
-    return update_post_metrics(paths, config, state, before_max_seq)
+    _, after_max_seq = recent_self_posts(paths, config)
+    if after_max_seq > before_max_seq:
+        state["consecutive_cycles_without_post"] = 0
+        state["last_post_seq"] = after_max_seq
+        return 1
+    state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
+    return 0
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────
+# ── Entry point ──────────────────────────────────────────────────────────
 
 
 def ensure_agent_registered(paths, config) -> None:
-    """Register agent in drifter DB if not already present."""
     try:
         agents = run_drifter(paths.project_root, "agents", "--json", json_output=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return  # drifter binary not available or DB not initialized
+        return
     registered = {a["name"] for a in agents if isinstance(a, dict)}
     if config.name in registered:
         return
@@ -294,7 +175,7 @@ def ensure_agent_registered(paths, config) -> None:
     try:
         run_drifter(paths.project_root, *birth_cmd)
     except subprocess.CalledProcessError:
-        pass  # may fail if DB not initialized; worker will retry next startup
+        pass
 
     for channel in config.watch_channels:
         try:
@@ -303,123 +184,59 @@ def ensure_agent_registered(paths, config) -> None:
             pass
 
 
-def loop(agent: str, once: bool = False, force_dream: bool = False) -> int:
-    signal.signal(signal.SIGTERM, _handle_sigterm)
+def run(agent: str, dream: bool = False) -> int:
+    """Run one cycle for the agent, then exit."""
     paths = agent_paths(agent)
     ensure_agent_files(paths)
     config = load_agent_config(paths)
     ensure_agent_registered(paths, config)
     state = load_state(paths)
     metrics = CycleMetrics(config.name, paths.db_path)
+    cycle_id = uuid.uuid4().hex[:8]
 
-    wake_path = paths.agent_dir / ".wake"
-    dream_dl = _dream_deadline(state, config.dream_interval_hours)
-    last_cycle_at = 0.0  # monotonic; 0 ensures first cycle fires immediately
-
-    while True:
-        if _shutdown_requested:
-            state["worker_status"] = "terminated"
-            save_state(paths, state)
-            return 0
-
-        # Inbox-first: check for reactive work before heartbeat gates anything
-        mode = heartbeat_mode(paths.heartbeat_path)
-        inbox_pending = has_pending_inbox(paths, config)
-
-        # Die: process any pending inbox first, then exit
-        if mode == "die" and not inbox_pending:
-            state["worker_status"] = "dead"
-            save_state(paths, state)
-            delete_wake_file(paths.agent_dir)
-            return 0
-
-        # Sleep/blocked: only gate autonomous cycles (browse, dream).
-        # If inbox has items, process them regardless of heartbeat.
-        if mode in ("sleep", "blocked") and not inbox_pending:
-            state["worker_status"] = mode
-            state["last_polled_at"] = iso_now()
-            save_state(paths, state)
-            delete_wake_file(paths.agent_dir)
-            if once:
-                return 0
-            time.sleep(config.sleep_error if mode == "blocked" else config.sleep_idle)
-            continue
-
-        # Determine event
-        if inbox_pending:
-            event = "wake"  # inbox items always trigger a cycle
-        elif mode in ("sleep", "blocked", "die"):
-            event = "poll"  # heartbeat suppresses autonomous cycles
-        elif force_dream:
-            event = "dream"
-            force_dream = False
-        elif once:
-            event = "dream" if time.monotonic() >= dream_dl else "poll"
+    try:
+        if dream:
+            metrics.cycle_start()
+            posts = run_dream_cycle(paths, config, state)
+            metrics.cycle_end(posts)
+            metrics.record_metrics(cycle_id)
         else:
-            event = _wait_for_event(wake_path, config.sleep_idle, dream_dl)
-
-        cycle_id = uuid.uuid4().hex[:8]
-
-        try:
-            if event == "dream":
-                metrics.cycle_start()
-                posts = run_dream_cycle(paths, config, state)
-                metrics.cycle_end(posts)
-                metrics.record_metrics(cycle_id)
-                last_cycle_at = time.monotonic()
-                dream_dl = last_cycle_at + config.dream_interval_hours * 3600
-            else:
-                delete_wake_file(paths.agent_dir)
-                idle_elapsed = time.monotonic() - last_cycle_at
-                browse = idle_elapsed >= config.sleep_idle
-                metrics.cycle_start()
-                worked, posts = run_regular_cycle(paths, config, state, force=browse)
-                if not worked:
-                    state["worker_status"] = "idle"
-                    state["last_polled_at"] = iso_now()
-                    save_state(paths, state)
-                    if once:
-                        return 0
-                    continue
-                last_cycle_at = time.monotonic()
-                metrics.cycle_end(posts)
-                metrics.record_metrics(cycle_id)
-                if metrics.is_stuck():
-                    metrics.notify_stuck(paths.project_root)
-        except subprocess.CalledProcessError as exc:
-            state["worker_status"] = "error"
-            state["last_error_at"] = iso_now()
-            state["last_error"] = exc.stderr.strip() if exc.stderr else str(exc)
-            save_state(paths, state)
-            delete_wake_file(paths.agent_dir)
-            if once:
-                return 1
-            time.sleep(config.sleep_error)
-            continue
-        except FileNotFoundError as exc:
-            state["worker_status"] = "error"
-            state["last_error_at"] = iso_now()
-            state["last_error"] = str(exc)
-            save_state(paths, state)
-            return 1
-
-        state["worker_status"] = "idle"
-        state["last_polled_at"] = iso_now()
+            metrics.cycle_start()
+            worked, posts = run_regular_cycle(paths, config, state)
+            if not worked:
+                state["worker_status"] = "idle"
+                state["last_polled_at"] = iso_now()
+                save_state(paths, state)
+                return 0
+            metrics.cycle_end(posts)
+            metrics.record_metrics(cycle_id)
+            if metrics.is_stuck():
+                metrics.notify_stuck(paths.project_root)
+    except subprocess.CalledProcessError as exc:
+        state["worker_status"] = "error"
+        state["last_error_at"] = iso_now()
+        state["last_error"] = exc.stderr.strip() if exc.stderr else str(exc)
         save_state(paths, state)
-        delete_wake_file(paths.agent_dir)
-        if once:
-            return 0
-        force_dream = False
-        time.sleep(config.sleep_active)
+        return 1
+    except FileNotFoundError as exc:
+        state["worker_status"] = "error"
+        state["last_error_at"] = iso_now()
+        state["last_error"] = str(exc)
+        save_state(paths, state)
+        return 1
+
+    state["worker_status"] = "idle"
+    state["last_polled_at"] = iso_now()
+    save_state(paths, state)
+    return 0
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a Drifter worker loop.")
+    parser = argparse.ArgumentParser(description="Run one Drifter agent cycle.")
     parser.add_argument("--agent", required=True)
-    parser.add_argument("--once", action="store_true")
     parser.add_argument("--dream", action="store_true")
     args = parser.parse_args()
-    raise SystemExit(loop(args.agent, once=args.once, force_dream=args.dream))
+    raise SystemExit(run(args.agent, dream=args.dream))
 
 
 if __name__ == "__main__":
