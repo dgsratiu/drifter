@@ -66,7 +66,7 @@ merge_branch() {
   git -C "$REPO_ROOT" worktree add --detach "$merge_tree" "$base_commit" >/dev/null
   if ! merge_output=$(
     cd "$merge_tree" &&
-    git checkout -b drifter-merge "$base_commit" >/dev/null 2>&1 &&
+    git -c user.name="Drifter Agent" -c user.email="agent@drifter.local" checkout -B drifter-merge "$base_commit" >/dev/null 2>&1 &&
     git merge --no-ff --no-edit "$branch" 2>&1
   ); then
     post_engineering "$(printf 'auto-merge REJECT %s: merge to main failed\n%s' "$branch" "$(trim_output "$merge_output")")"
