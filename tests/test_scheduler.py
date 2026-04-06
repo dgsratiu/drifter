@@ -104,7 +104,7 @@ class TestMixedInbox:
 
             scheduler.main()
 
-        mock_worker.assert_called_once_with("engineer")
+        mock_worker.assert_called_once_with("engineer", trigger="inbox")
 
     def test_actionable_only_inbox_spawns_worker(self, mock_paths):
         """When inbox has only actionable items, spawn worker."""
@@ -119,11 +119,11 @@ class TestMixedInbox:
                     assert has_actionable is True
 
                     if has_actionable:
-                        scheduler._run_worker("engineer")
+                        scheduler._run_worker("engineer", trigger="inbox")
                     else:
                         scheduler._ack_inbox(mock_paths, inbox_items)
 
-        mock_worker.assert_called_once_with("engineer")
+        mock_worker.assert_called_once_with("engineer", trigger="inbox")
         mock_ack.assert_not_called()
 
 

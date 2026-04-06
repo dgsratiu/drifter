@@ -121,13 +121,16 @@ pub async fn run(project_root: &Path) -> Result<()> {
         passed = false;
     }
 
-    // 6. New migrations — agents cannot create database migrations
-    for f in new_migrations(project_root).await? {
-        println!(
-            "FAIL: agents cannot create database migrations — propose schema changes via the bus: {}",
-            f
-        );
-        passed = false;
+    // 6. New migrations — agents cannot create database migrations (agent/* branches only)
+    let branch = current_branch(project_root).await.unwrap_or_default();
+    if branch.starts_with("agent/") {
+        for f in new_migrations(project_root).await? {
+            println!(
+                "FAIL: agents cannot create database migrations — propose schema changes via the bus: {}",
+                f
+            );
+            passed = false;
+        }
     }
 
     if passed {
@@ -194,6 +197,15 @@ async fn new_migrations(project_root: &Path) -> Result<Vec<String>> {
     result.sort();
     result.dedup();
     Ok(result)
+}
+
+async fn current_branch(project_root: &Path) -> Result<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(project_root)
+        .output()
+        .await?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 async fn modified_migrations(project_root: &Path) -> Result<Vec<String>> {

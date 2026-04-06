@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -103,11 +104,37 @@ def _rotate_logs(log_dir: Path, keep: int = 200) -> None:
         stale.unlink(missing_ok=True)
 
 
+_SENSITIVE_RE = re.compile(
+    r"(?:"
+    r"sk-ant-[A-Za-z0-9_-]{20,}"       # Anthropic
+    r"|sk-[A-Za-z0-9]{20,}"            # OpenAI
+    r"|xoxb-[A-Za-z0-9-]{20,}"         # Slack bot token
+    r"|xoxp-[A-Za-z0-9-]{20,}"         # Slack user token
+    r"|ghp_[A-Za-z0-9]{36,}"           # GitHub PAT
+    r"|gho_[A-Za-z0-9]{36,}"           # GitHub OAuth
+    r"|github_pat_[A-Za-z0-9_]{20,}"   # GitHub fine-grained PAT
+    r"|glpat-[A-Za-z0-9_-]{20,}"       # GitLab PAT
+    r"|AKIA[A-Z0-9]{16}"               # AWS access key
+    r"|Bearer\s+[A-Za-z0-9._-]{20,}"   # Bearer tokens
+    r")",
+    re.ASCII,
+)
+
+
+def _sanitize_log(data: bytes) -> bytes:
+    try:
+        text = data.decode("utf-8", errors="replace")
+        text = _SENSITIVE_RE.sub("[REDACTED]", text)
+        return text.encode("utf-8")
+    except Exception:
+        return data
+
+
 def _tee_output(proc, log_file):
     for chunk in iter(lambda: proc.stdout.read(4096), b""):
         sys.stdout.buffer.write(chunk)
         sys.stdout.buffer.flush()
-        log_file.write(chunk)
+        log_file.write(_sanitize_log(chunk))
 
 
 def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, working_dir: Path | None = None) -> None:
@@ -156,9 +183,9 @@ def _ack_inbox(paths, inbox_ids: list[int]) -> None:
             pass
 
 
-def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
+def run_regular_cycle(paths, config, state, trigger: str = "regular") -> tuple[bool, int]:
     """Returns (worked, posts_this_cycle)."""
-    bundle = compile_regular_prompt(paths, config, state)
+    bundle = compile_regular_prompt(paths, config, state, trigger=trigger)
     if not bundle.has_work:
         return False, 0
     working_dir = resolve_working_dir(paths)
@@ -180,7 +207,7 @@ def run_regular_cycle(paths, config, state) -> tuple[bool, int]:
     state["consecutive_failures"] = 0
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
-    state["last_trigger"] = "regular"
+    state["last_trigger"] = trigger
     _, after_max_seq = recent_self_posts(paths, config)
     if after_max_seq > bundle.self_post_max_seq:
         state["consecutive_cycles_without_post"] = 0
@@ -235,7 +262,7 @@ def ensure_agent_registered(paths, config) -> None:
             pass
 
 
-def run(agent: str, dream: bool = False) -> int:
+def run(agent: str, dream: bool = False, trigger: str = "regular") -> int:
     """Run one cycle for the agent, then exit."""
     paths = agent_paths(agent)
     ensure_agent_files(paths)
@@ -253,7 +280,7 @@ def run(agent: str, dream: bool = False) -> int:
             metrics.record_metrics(cycle_id)
         else:
             metrics.cycle_start()
-            worked, posts = run_regular_cycle(paths, config, state)
+            worked, posts = run_regular_cycle(paths, config, state, trigger=trigger)
             if not worked:
                 state["worker_status"] = "idle"
                 state["last_polled_at"] = iso_now()
@@ -288,8 +315,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run one Drifter agent cycle.")
     parser.add_argument("--agent", required=True)
     parser.add_argument("--dream", action="store_true")
+    parser.add_argument("--trigger", default="regular")
     args = parser.parse_args()
-    raise SystemExit(run(args.agent, dream=args.dream))
+    raise SystemExit(run(args.agent, dream=args.dream, trigger=args.trigger))
 
 
 if __name__ == "__main__":

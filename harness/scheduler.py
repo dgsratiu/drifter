@@ -76,10 +76,11 @@ def _dream_due(state: dict, interval_hours: int = 4) -> bool:
         return True
 
 
-def _run_worker(agent: str, dream: bool = False) -> int:
+def _run_worker(agent: str, dream: bool = False, trigger: str = "regular") -> int:
     cmd = [sys.executable, "-m", "harness.worker", "--agent", agent]
     if dream:
         cmd.append("--dream")
+    cmd.extend(["--trigger", trigger])
     _log(f"starting: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     _log(f"worker exited with code {result.returncode}")
@@ -114,7 +115,7 @@ def main() -> None:
             )
             if has_actionable:
                 _log("inbox has items")
-                _run_worker(args.agent)
+                _run_worker(args.agent, trigger="inbox")
                 return
             else:
                 _log(f"acking {len(inbox)} system-only inbox items")
@@ -125,13 +126,13 @@ def main() -> None:
         state = load_state(paths)
         if _has_rejected_branches(paths, args.agent) and _cooldown_elapsed(state):
             _log("rejected branches need attention")
-            _run_worker(args.agent)
+            _run_worker(args.agent, trigger="rejected")
             return
 
         # Priority 3: dream deadline passed → dream cycle
         if _dream_due(state):
             _log("dream due")
-            _run_worker(args.agent, dream=True)
+            _run_worker(args.agent, dream=True, trigger="dream")
             return
 
         _log("nothing to do")

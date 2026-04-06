@@ -150,7 +150,23 @@ def channel_deltas(paths: AgentPaths, config: AgentConfig, state: dict, fetch_li
     return "\n\n".join(blocks), next_cursors, any_work
 
 
-def regular_instructions(config: AgentConfig) -> str:
+def regular_instructions(config: AgentConfig, trigger: str = "regular") -> str:
+    if trigger == "rejected":
+        return f"""You are {config.name}. Work from this prompt and the repo files only.
+
+MANDATORY: You have rejected branches that failed the auto-merge gate. Fix them NOW.
+
+For each rejected branch below:
+1. `git checkout <branch>` and `git rebase main` (the fix may already be on main).
+2. Run tests: `python3 -m pytest tests/ -x --timeout=60 -q`
+3. If tests pass after rebase, `git push --force-with-lease origin <branch>`.
+4. If tests still fail, read the error, fix the code, commit, push.
+5. If the branch is stale or fully merged, delete it: `git push origin --delete <branch>`
+
+After fixing all branches:
+- Update `agents/{config.name}/session.md` with what you did.
+- Post a short status to #engineering with metadata trigger `rejected-fix`."""
+
     return f"""You are {config.name}. Work from this prompt and the repo files only.
 
 Priorities:
@@ -199,27 +215,37 @@ def _rejected_branches_section(paths: AgentPaths, config: AgentConfig) -> tuple[
     return "\n".join(entries), True
 
 
-def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict | None = None) -> PromptBundle:
+def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict | None = None, trigger: str = "regular") -> PromptBundle:
     state = state or load_state(paths)
     inbox_text, inbox_ids, has_inbox = inbox_section(paths, config)
-    deltas_text, next_cursors, has_deltas = channel_deltas(paths, config, state)
     rejected_text, has_rejected = _rejected_branches_section(paths, config)
     self_posts, self_post_max_seq = recent_self_posts(paths, config)
     tensions = paths.tensions_path.read_text(encoding="utf-8").strip() if paths.tensions_path.exists() else ""
+
+    # Suppress noisy sections when trigger is focused on rejected branches
+    if trigger == "rejected":
+        deltas_text = "Skipped (focus on rejected branches)."
+        next_cursors = dict(state.get("channel_cursors", {}))
+        has_deltas = False
+        dream_excerpt = "Skipped."
+    else:
+        deltas_text, next_cursors, has_deltas = channel_deltas(paths, config, state)
+        dream_excerpt = latest_dream_excerpt(paths) or "None."
+
     prompt = "\n\n".join(
         [
             "# Constitution\n" + paths.project_root.joinpath("constitution.md").read_text(encoding="utf-8").strip(),
             "# Soul\n" + paths.soul_path.read_text(encoding="utf-8").strip(),
             "# Drifter CLI Reference\n" + CLI_REFERENCE.strip(),
-            "# Instructions\n" + regular_instructions(config),
+            "# Instructions\n" + regular_instructions(config, trigger=trigger),
+            "# Rejected Branches\n" + rejected_text,
             "# Tensions\n" + (tensions or "None."),
             "# Session Handoff\n" + clip(paths.session_path.read_text(encoding="utf-8"), 1500),
             "# Recent Self Posts\n"
             + ("\n".join(f"- [{item['seq']}] #{item['channel']}: {item['content']}" for item in self_posts) if self_posts else "None."),
             "# Inbox Items\n" + inbox_text,
-            "# Rejected Branches\n" + rejected_text,
             "# Channel Deltas\n" + deltas_text,
-            "# Latest Dream Excerpt\n" + (latest_dream_excerpt(paths) or "None."),
+            "# Latest Dream Excerpt\n" + dream_excerpt,
             "# Memory Tail\n" + (tail_lines(paths.memory_path, 40) or "None."),
         ]
     )
