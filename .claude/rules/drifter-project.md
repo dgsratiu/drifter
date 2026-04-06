@@ -25,6 +25,14 @@ OpenCode's `external_directory` config only restricts file tools (Read, Write, E
 
 - Auto-deploy should only kill stale workers (`stop_workers`), never start new ones (`restart_workers`). Starting workers bypasses the scheduler's priority logic and pollutes state (`last_cycle_at`, cooldowns) that the scheduler depends on. The scheduler (cron every 2 min) handles worker lifecycle.
 
+## Prompt construction
+
+- When the scheduler already knows the trigger type (inbox, rejected, dream), build the worker prompt to reflect that decision — suppress irrelevant sections (e.g., channel deltas for a rejected-branch trigger) rather than relying on the model to ignore them. The trigger flows from scheduler (`--trigger`) through worker to `compile_regular_prompt(trigger=...)`.
+
+## Testing
+
+- `DRIFTER_BIN` in tests must be an absolute path — tests run with `tmp_path` as CWD, so relative paths resolve against the temp directory, not the project root. Use `os.path.abspath()` when constructing the default.
+
 ## Rejected branches tracking
 
 - Auto-merge records `branch sha` pairs in `.drifter/rejected-branches` after REJECT/CONFLICT. Before processing a branch, it checks the file: same SHA = skip (no new commits from agent), different SHA = clear entry and re-process (agent pushed a fix). Entries cleaned on merge success. The scheduler reads this file as a trigger (with 10-min cooldown) so the engineer discovers rejected branches without inbox notifications.
