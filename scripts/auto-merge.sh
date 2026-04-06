@@ -94,6 +94,9 @@ merge_branch() {
   fi
 
   git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
+  if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" push origin --delete "$branch" >/dev/null 2>&1 || true
+  fi
   sed -i "\|^$branch |d" "$STATE_DIR/rejected-branches" 2>/dev/null || true
   post_engineering "auto-merge PASS: $branch merged to main"
 }
@@ -110,6 +113,9 @@ for branch in "${branches[@]}"; do
   if git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" refs/heads/main 2>/dev/null; then
     log "skipping $branch (already merged into main)"
     git -C "$REPO_ROOT" branch -D "$branch" >/dev/null 2>&1 || true
+    if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+      git -C "$REPO_ROOT" push origin --delete "$branch" >/dev/null 2>&1 || true
+    fi
     sed -i "\|^$branch |d" "$STATE_DIR/rejected-branches" 2>/dev/null || true
     continue
   fi
@@ -129,3 +135,21 @@ for branch in "${branches[@]}"; do
   fi
   merge_branch "$branch"
 done
+
+# Clean up merged remote agent branches (catches historical + failed inline deletes)
+if git -C "$REPO_ROOT" remote get-url origin >/dev/null 2>&1; then
+  mapfile -t remote_branches < <(
+    git -C "$REPO_ROOT" for-each-ref --format='%(refname:short)' refs/remotes/origin/agent/
+  )
+  for rbranch in "${remote_branches[@]:-}"; do
+    [[ -n "$rbranch" ]] || continue
+    local_name="${rbranch#origin/}"
+    # Skip if local branch still exists (handled by the main loop)
+    git -C "$REPO_ROOT" rev-parse --verify "refs/heads/$local_name" >/dev/null 2>&1 && continue
+    # Delete remote if merged into main
+    if git -C "$REPO_ROOT" merge-base --is-ancestor "$rbranch" refs/heads/main 2>/dev/null; then
+      log "deleting merged remote branch $local_name"
+      git -C "$REPO_ROOT" push origin --delete "$local_name" >/dev/null 2>&1 || true
+    fi
+  done
+fi
