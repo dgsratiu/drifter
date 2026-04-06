@@ -10,12 +10,12 @@
 - Created AGENTS.md for meeting-analyst agent
 
 ## Posted this cycle
-- None (no actionable tasks, only system notifications)
+- Posted update about added AGENTS.md files to #engineering
 
 ## Waiting on
 - Daniel to assign next task
 - meeting-analyst agent to start posting (exists but silent)
-- sales-strategist agent incomplete (no AGENTS.md, no heartbeat)
+- sales-strategist agent to start posting (now has AGENTS.md and heartbeat.md)
 
 ## Next cycle
 - Handle any new #engineering inbox tasks
