@@ -379,3 +379,72 @@ class TestAgentSovereignty:
         result = _gate(tmp_path, branch="agent/engineer/add-migration")
         assert result.returncode == 1, f"stdout: {result.stdout}"
         assert "agents cannot create database migrations" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Test: path antipattern — gateways must not use Path(__file__) for project root
+# ---------------------------------------------------------------------------
+
+class TestPathAntipattern:
+    """Verify that gateway files cannot use Path(__file__) for project root."""
+
+    def test_gateway_with_antipattern_fails(self, tmp_path):
+        """A gateway file deriving project_root from __file__ should fail."""
+        _init_drifter_repo(tmp_path)
+
+        gateways = tmp_path / "gateways"
+        gateways.mkdir()
+        (gateways / "example.py").write_text(
+            'from pathlib import Path\n'
+            'project_root = Path(__file__).resolve().parent.parent\n'
+        )
+        _run("git add gateways/", tmp_path)
+
+        result = _gate(tmp_path)
+        assert result.returncode == 1, f"stdout: {result.stdout}"
+        assert "derives project_root from __file__" in result.stdout
+
+    def test_gateway_without_antipattern_passes(self, tmp_path):
+        """A gateway file accepting project_root as parameter should pass."""
+        _init_drifter_repo(tmp_path)
+
+        gateways = tmp_path / "gateways"
+        gateways.mkdir()
+        (gateways / "example.py").write_text(
+            'from pathlib import Path\n'
+            'def main(project_root: Path) -> int:\n'
+            '    return 0\n'
+        )
+        _run("git add gateways/", tmp_path)
+
+        result = _gate(tmp_path)
+        assert result.returncode == 0, f"stdout: {result.stdout}"
+
+    def test_dashboard_with_antipattern_fails(self, tmp_path):
+        """The check also applies to dashboard/ files."""
+        _init_drifter_repo(tmp_path)
+
+        dashboard = tmp_path / "dashboard"
+        dashboard.mkdir()
+        (dashboard / "app.py").write_text(
+            'from pathlib import Path\n'
+            'ROOT = Path(__file__).resolve().parent.parent\n'
+        )
+        _run("git add dashboard/", tmp_path)
+
+        result = _gate(tmp_path)
+        assert result.returncode == 1, f"stdout: {result.stdout}"
+
+    def test_non_gateway_file_with_pattern_passes(self, tmp_path):
+        """__file__ usage in non-gateway files should not be flagged."""
+        _init_drifter_repo(tmp_path)
+
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "helper.py").write_text(
+            'from pathlib import Path\n'
+            'ROOT = Path(__file__).resolve().parent.parent\n'
+        )
+        _run("git add scripts/", tmp_path)
+
+        result = _gate(tmp_path)
+        assert result.returncode == 0, f"stdout: {result.stdout}"

@@ -56,6 +56,22 @@ pub async fn run(project_root: &Path, branch_override: Option<&str>) -> Result<(
         }
     }
 
+    // Path antipattern — gateways must not hardcode project root from __file__
+    for f in &changed {
+        if f.ends_with(".py") && (f.starts_with("gateways/") || f.starts_with("dashboard/")) {
+            let full_path = project_root.join(f);
+            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                if content.contains("Path(__file__).resolve().parent.parent") {
+                    println!(
+                        "FAIL: {} derives project_root from __file__ — accept it as a parameter or use resolve_project_root() from harness/common.py",
+                        f
+                    );
+                    passed = false;
+                }
+            }
+        }
+    }
+
     // 1. Rust files → cargo check
     if changed
         .iter()

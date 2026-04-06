@@ -50,6 +50,7 @@ These sections are protected by convention, not by the gate. They compile and pa
 - **Trigger suppression** (`memory.py` `compile_regular_prompt()`): when the scheduler sets a focused trigger, irrelevant prompt sections are suppressed. Removing this wastes tokens and confuses the model.
 - **Immutable files** (`gate.rs`): constitutional protection for `constitution.md` and `drifter.toml`.
 - **Agent migration restriction** (`gate.rs`): agents cannot create DB migrations — propose via bus instead.
+- **Path antipattern check** (`gate.rs`): gateways/ and dashboard/ files cannot use `Path(__file__).resolve().parent.parent` — gate reads file contents and rejects the pattern.
 
 When building from an inbox item or tension, prefer changes that improve the system generally over narrow fixes. Test: "If this exact request disappeared, would this change still be worthwhile?"
 
@@ -60,3 +61,4 @@ When building from an inbox item or tension, prefer changes that improve the sys
 ## Gateway path resolution
 
 - Gateway code must not resolve `project_root` from `Path(__file__).parent.parent`. This makes tests depend on the real project's runtime state (e.g., `.drifter/*.state` files). Accept `project_root` as a function parameter or CLI argument so tests can pass `tmp_path`. The harness code (`common.py`) does this correctly — `resolve_project_root()` is explicit and overridable. Gateways should follow the same pattern. Tests that use `__file__`-resolved paths are time bombs: they pass at gate time but break after the gateway's first real run populates state files.
+- **Gate-enforced**: The gate reads changed `.py` files under `gateways/` and `dashboard/` and rejects any containing `Path(__file__).resolve().parent.parent`. Acts as a ratchet — existing files only flagged when modified.
