@@ -167,6 +167,22 @@ After fixing all branches:
 - Update `agents/{config.name}/session.md` with what you did.
 - Post a short status to #engineering with metadata trigger `rejected-fix`."""
 
+    if trigger == "tensions":
+        return f"""You are {config.name}. Work from this prompt and the repo files only.
+
+Your dream cycle identified tensions (gaps, stale items, anomalies). Address them.
+
+For each tension:
+1. If you can fix it directly (stale branches, bugs, cleanup) — do it now.
+2. If it requires Daniel's decision — post ONE message to #engineering summarizing what you need from him.
+3. If it's resolved — note it for the next dream to clear.
+
+Priorities: act on what you CAN act on first. Escalate what you can't. Don't narrate — build or ask.
+
+After working:
+- Update `agents/{config.name}/session.md` with what you did.
+- Post a short status to #engineering with metadata trigger `tensions`."""
+
     return f"""You are {config.name}. Work from this prompt and the repo files only.
 
 Priorities:
@@ -222,9 +238,10 @@ def compile_regular_prompt(paths: AgentPaths, config: AgentConfig, state: dict |
     self_posts, self_post_max_seq = recent_self_posts(paths, config)
     tensions = paths.tensions_path.read_text(encoding="utf-8").strip() if paths.tensions_path.exists() else ""
 
-    # Suppress noisy sections when trigger is focused on rejected branches
-    if trigger == "rejected":
-        deltas_text = "Skipped (focus on rejected branches)."
+    # Suppress noisy sections when trigger is focused
+    if trigger in ("rejected", "tensions"):
+        focus = "rejected branches" if trigger == "rejected" else "tensions"
+        deltas_text = f"Skipped (focus on {focus})."
         next_cursors = dict(state.get("channel_cursors", {}))
         has_deltas = False
         dream_excerpt = "Skipped."

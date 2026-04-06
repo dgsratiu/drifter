@@ -208,6 +208,8 @@ def run_regular_cycle(paths, config, state, trigger: str = "regular") -> tuple[b
     state["channel_cursors"] = bundle.channel_cursors
     state["last_cycle_at"] = iso_now()
     state["last_trigger"] = trigger
+    if trigger == "tensions":
+        state["last_tensions_cycle_at"] = iso_now()
     _, after_max_seq = recent_self_posts(paths, config)
     if after_max_seq > bundle.self_post_max_seq:
         state["consecutive_cycles_without_post"] = 0

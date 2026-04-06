@@ -200,6 +200,113 @@ class TestDreamDeadline:
         assert scheduler._dream_due({"last_dream_at": just_under_4h}) is False
 
 
+class TestTensionsTrigger:
+    """Tensions trigger spawns a worker when tensions exist and cooldown elapsed."""
+
+    def test_has_tensions_with_content(self, mock_paths):
+        """Non-empty tensions.md returns True."""
+        mock_paths.tensions_path.write_text("## Gaps\n- something broken\n")
+        assert scheduler._has_tensions(mock_paths) is True
+
+    def test_has_tensions_empty(self, mock_paths):
+        """Empty tensions.md returns False."""
+        mock_paths.tensions_path.write_text("")
+        assert scheduler._has_tensions(mock_paths) is False
+
+    def test_has_tensions_whitespace_only(self, mock_paths):
+        """Whitespace-only tensions.md returns False."""
+        mock_paths.tensions_path.write_text("   \n\n  ")
+        assert scheduler._has_tensions(mock_paths) is False
+
+    def test_has_tensions_missing_file(self, mock_paths):
+        """Missing tensions.md returns False."""
+        if mock_paths.tensions_path.exists():
+            mock_paths.tensions_path.unlink()
+        assert scheduler._has_tensions(mock_paths) is False
+
+    def test_tensions_cooldown_no_previous(self):
+        """No last_tensions_cycle_at means cooldown is elapsed."""
+        assert scheduler._tensions_cooldown_elapsed({}) is True
+
+    def test_tensions_cooldown_old(self):
+        """Old last_tensions_cycle_at means cooldown is elapsed."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+        assert scheduler._tensions_cooldown_elapsed({"last_tensions_cycle_at": old}) is True
+
+    def test_tensions_cooldown_recent(self):
+        """Recent last_tensions_cycle_at means cooldown not elapsed."""
+        recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        assert scheduler._tensions_cooldown_elapsed({"last_tensions_cycle_at": recent}) is False
+
+    def test_tensions_trigger_spawns_worker(self, mock_paths):
+        """Scheduler spawns worker with trigger=tensions when tensions exist."""
+        mock_paths.tensions_path.write_text("## Gaps\n- stale branches\n")
+
+        with (
+            patch("argparse.ArgumentParser") as mock_parser_cls,
+            patch.object(scheduler, "run_drifter", return_value=[]),  # empty inbox
+            patch.object(scheduler, "_run_worker", return_value=0) as mock_worker,
+            patch.object(scheduler, "load_state", return_value={}),
+            patch.object(scheduler, "fcntl"),
+            patch.object(scheduler, "agent_paths", return_value=mock_paths),
+            patch.object(scheduler, "ensure_agent_files"),
+        ):
+            mock_args = MagicMock()
+            mock_args.agent = "engineer"
+            mock_parser_cls.return_value.parse_args.return_value = mock_args
+
+            scheduler.main()
+
+        mock_worker.assert_called_once_with("engineer", trigger="tensions")
+
+    def test_tensions_skipped_when_cooldown_not_elapsed(self, mock_paths):
+        """Scheduler skips tensions when cooldown hasn't elapsed."""
+        mock_paths.tensions_path.write_text("## Gaps\n- something\n")
+        recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+
+        with (
+            patch("argparse.ArgumentParser") as mock_parser_cls,
+            patch.object(scheduler, "run_drifter", return_value=[]),
+            patch.object(scheduler, "_run_worker", return_value=0) as mock_worker,
+            patch.object(scheduler, "load_state", return_value={"last_tensions_cycle_at": recent}),
+            patch.object(scheduler, "fcntl"),
+            patch.object(scheduler, "agent_paths", return_value=mock_paths),
+            patch.object(scheduler, "ensure_agent_files"),
+        ):
+            mock_args = MagicMock()
+            mock_args.agent = "engineer"
+            mock_parser_cls.return_value.parse_args.return_value = mock_args
+
+            scheduler.main()
+
+        # Should not have spawned a worker (no inbox, no rejected, tensions on cooldown, dream not due needs state)
+        # Dream check: load_state returns {} for last_dream_at... actually it returns the dict with last_tensions_cycle_at
+        # _dream_due checks last_dream_at which is missing → dream is due
+        mock_worker.assert_called_once_with("engineer", dream=True, trigger="dream")
+
+    def test_inbox_takes_priority_over_tensions(self, mock_paths):
+        """Inbox items are handled before tensions."""
+        mock_paths.tensions_path.write_text("## Gaps\n- something\n")
+        inbox_items = [{"id": 1, "from_agent": "daniel", "text": "do this"}]
+
+        with (
+            patch("argparse.ArgumentParser") as mock_parser_cls,
+            patch.object(scheduler, "run_drifter", return_value=inbox_items),
+            patch.object(scheduler, "_run_worker", return_value=0) as mock_worker,
+            patch.object(scheduler, "load_state", return_value={}),
+            patch.object(scheduler, "fcntl"),
+            patch.object(scheduler, "agent_paths", return_value=mock_paths),
+            patch.object(scheduler, "ensure_agent_files"),
+        ):
+            mock_args = MagicMock()
+            mock_args.agent = "engineer"
+            mock_parser_cls.return_value.parse_args.return_value = mock_args
+
+            scheduler.main()
+
+        mock_worker.assert_called_once_with("engineer", trigger="inbox")
+
+
 class TestRunWorker:
     """Worker invocation."""
 

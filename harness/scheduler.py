@@ -64,6 +64,28 @@ def _cooldown_elapsed(state: dict, minutes: int = 10) -> bool:
         return True
 
 
+def _has_tensions(paths) -> bool:
+    """Check if the agent has non-empty tensions."""
+    tp = paths.tensions_path
+    return tp.exists() and bool(tp.read_text(encoding="utf-8").strip())
+
+
+def _tensions_cooldown_elapsed(state: dict, hours: int = 4) -> bool:
+    """True if enough time has passed since the last tensions-triggered cycle.
+
+    Uses the dream interval (4h default) so tensions are addressed once per
+    dream cycle — prevents re-triggering on unresolvable tensions.
+    """
+    last = state.get("last_tensions_cycle_at")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - last_dt).total_seconds() >= hours * 3600
+    except (ValueError, TypeError):
+        return True
+
+
 def _dream_due(state: dict, interval_hours: int = 4) -> bool:
     last = state.get("last_dream_at")
     if not last:
@@ -127,6 +149,12 @@ def main() -> None:
         if _has_rejected_branches(paths, args.agent) and _cooldown_elapsed(state):
             _log("rejected branches need attention")
             _run_worker(args.agent, trigger="rejected")
+            return
+
+        # Priority 2.5: tensions exist (with dream-interval cooldown)
+        if _has_tensions(paths) and _tensions_cooldown_elapsed(state):
+            _log("tensions need attention")
+            _run_worker(args.agent, trigger="tensions")
             return
 
         # Priority 3: dream deadline passed → dream cycle
