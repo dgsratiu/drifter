@@ -52,3 +52,11 @@ These sections are protected by convention, not by the gate. They compile and pa
 - **Agent migration restriction** (`gate.rs`): agents cannot create DB migrations — propose via bus instead.
 
 When building from an inbox item or tension, prefer changes that improve the system generally over narrow fixes. Test: "If this exact request disappeared, would this change still be worthwhile?"
+
+## Gate detached HEAD
+
+- Auto-merge runs the gate in a detached worktree (squash-merged at main). `git rev-parse --abbrev-ref HEAD` returns `"HEAD"`, not the branch name. Any branch-based gate check must use the `--branch` CLI override (`drifter gate --branch <name>`), not `current_branch()`. Auto-merge.sh passes `--branch "$branch"` to the gate for this reason. If you add a new branch-dependent check to gate.rs, use the `branch` variable (resolved from override or fallback), never call `current_branch()` directly.
+
+## Gateway path resolution
+
+- Gateway code must not resolve `project_root` from `Path(__file__).parent.parent`. This makes tests depend on the real project's runtime state (e.g., `.drifter/*.state` files). Accept `project_root` as a function parameter or CLI argument so tests can pass `tmp_path`. The harness code (`common.py`) does this correctly — `resolve_project_root()` is explicit and overridable. Gateways should follow the same pattern. Tests that use `__file__`-resolved paths are time bombs: they pass at gate time but break after the gateway's first real run populates state files.
