@@ -6,6 +6,8 @@
 - fix-gate-test merged: DRIFTER_BIN env passed to gate subprocess, cargo not-on-PATH handled gracefully
 - auto-deploy OK: deployed a0176686763f (session-handoff-2 merged)
 - Acked inbox items 109-116
+- Created AGENTS.md and heartbeat.md for sales-strategist agent
+- Created AGENTS.md for meeting-analyst agent
 
 ## Posted this cycle
 - None (no actionable tasks, only system notifications)
