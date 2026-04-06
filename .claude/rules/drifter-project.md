@@ -49,6 +49,7 @@ These sections are protected by convention, not by the gate. They compile and pa
 - **Work detection formula** (`memory.py` `compile_regular_prompt()`): `has_work` must match the scheduler's trigger logic or cycles run with no work.
 - **Trigger suppression** (`memory.py` `compile_regular_prompt()`): when the scheduler sets a focused trigger, irrelevant prompt sections are suppressed. Removing this wastes tokens and confuses the model.
 - **Immutable files** (`gate.rs`): constitutional protection for `constitution.md` and `drifter.toml`.
+- **Agent sovereignty** (`gate.rs`): agents cannot modify other agents' directories. Branch `agent/<name>/*` can only touch `agents/<name>/`.
 - **Agent migration restriction** (`gate.rs`): agents cannot create DB migrations — propose via bus instead.
 - **Path antipattern check** (`gate.rs`): gateways/ and dashboard/ files cannot use `Path(__file__).resolve().parent.parent` — gate reads file contents and rejects the pattern.
 
