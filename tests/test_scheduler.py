@@ -7,6 +7,7 @@ Tests cover:
 - dream deadline calculation
 """
 
+import hashlib
 import json
 import subprocess
 import textwrap
@@ -305,6 +306,83 @@ class TestTensionsTrigger:
             scheduler.main()
 
         mock_worker.assert_called_once_with("engineer", trigger="inbox")
+
+
+    def test_tensions_hash_deterministic(self, mock_paths):
+        """Same content produces same hash."""
+        mock_paths.tensions_path.write_text("## Gaps\n- item\n")
+        h1 = scheduler._tensions_hash(mock_paths)
+        h2 = scheduler._tensions_hash(mock_paths)
+        assert h1 == h2
+        assert len(h1) == 64  # SHA256 hex digest
+
+    def test_tensions_changed_no_previous(self, mock_paths):
+        """No previous hash means tensions are considered changed."""
+        mock_paths.tensions_path.write_text("## Gaps\n- item\n")
+        assert scheduler._tensions_changed(mock_paths, {}) is True
+
+    def test_tensions_changed_same_content(self, mock_paths):
+        """Same content means tensions are NOT changed."""
+        content = "## Gaps\n- item\n"
+        mock_paths.tensions_path.write_text(content)
+        h = scheduler._tensions_hash(mock_paths)
+        assert scheduler._tensions_changed(mock_paths, {"last_tensions_hash": h}) is False
+
+    def test_tensions_changed_different_content(self, mock_paths):
+        """Different content means tensions ARE changed."""
+        mock_paths.tensions_path.write_text("## Gaps\n- new item\n")
+        old_hash = hashlib.sha256(b"## Gaps\n- old item").hexdigest()
+        assert scheduler._tensions_changed(mock_paths, {"last_tensions_hash": old_hash}) is True
+
+    def test_tensions_skipped_when_unchanged(self, mock_paths):
+        """Scheduler skips tensions when content hash hasn't changed."""
+        content = "## Gaps\n- same old thing\n"
+        mock_paths.tensions_path.write_text(content)
+        content_hash = hashlib.sha256(content.strip().encode("utf-8")).hexdigest()
+
+        with (
+            patch("argparse.ArgumentParser") as mock_parser_cls,
+            patch.object(scheduler, "run_drifter", return_value=[]),
+            patch.object(scheduler, "_run_worker", return_value=0) as mock_worker,
+            patch.object(scheduler, "load_state", return_value={
+                "last_tensions_hash": content_hash,
+            }),
+            patch.object(scheduler, "fcntl"),
+            patch.object(scheduler, "agent_paths", return_value=mock_paths),
+            patch.object(scheduler, "ensure_agent_files"),
+        ):
+            mock_args = MagicMock()
+            mock_args.agent = "engineer"
+            mock_parser_cls.return_value.parse_args.return_value = mock_args
+
+            scheduler.main()
+
+        # Tensions skipped → falls through to dream (no last_dream_at → dream due)
+        mock_worker.assert_called_once_with("engineer", dream=True, trigger="dream")
+
+    def test_tensions_triggered_when_content_changed(self, mock_paths):
+        """Scheduler triggers tensions when content differs from stored hash."""
+        mock_paths.tensions_path.write_text("## Gaps\n- new tension item\n")
+        old_hash = hashlib.sha256(b"## Gaps\n- old tension item").hexdigest()
+
+        with (
+            patch("argparse.ArgumentParser") as mock_parser_cls,
+            patch.object(scheduler, "run_drifter", return_value=[]),
+            patch.object(scheduler, "_run_worker", return_value=0) as mock_worker,
+            patch.object(scheduler, "load_state", return_value={
+                "last_tensions_hash": old_hash,
+            }),
+            patch.object(scheduler, "fcntl"),
+            patch.object(scheduler, "agent_paths", return_value=mock_paths),
+            patch.object(scheduler, "ensure_agent_files"),
+        ):
+            mock_args = MagicMock()
+            mock_args.agent = "engineer"
+            mock_parser_cls.return_value.parse_args.return_value = mock_args
+
+            scheduler.main()
+
+        mock_worker.assert_called_once_with("engineer", trigger="tensions")
 
 
 class TestRunWorker:

@@ -42,7 +42,7 @@ OpenCode's `external_directory` config only restricts file tools (Read, Write, E
 These sections are protected by convention, not by the gate. They compile and pass tests if changed, but break system guarantees. Do not restructure, reorder, or weaken them without Daniel's approval.
 
 - **Priority waterfall ordering** (`scheduler.py` `main()`): inbox > rejected > tensions > dream. Reordering breaks responsiveness — human messages must always preempt.
-- **Cooldown parameters** (`scheduler.py`): 10min for rejected, 4h for tensions. Tuned to prevent re-triggering on unresolvable state.
+- **Cooldown parameters** (`scheduler.py`): 10min for rejected, 4h for tensions. Tuned to prevent re-triggering on unresolvable state. Tensions also use SHA256 content-hash dedup (`last_tensions_hash` in state.json) — cooldown alone is insufficient because the dream cycle rewrites tensions.md with identical content.
 - **Environment allowlist** (`worker.py` `opencode_env()`): security boundary. Adding env vars leaks credentials to the LLM subprocess.
 - **Session timeout** (`worker.py` `SESSION_TIMEOUT`): 30min. Must exceed model response time, must not hold the lock so long the scheduler can never run.
 - **Ack on success only** (`worker.py` `run_regular_cycle()`): acking on failure silently drops tasks. Circuit breaker handles persistent failures separately.

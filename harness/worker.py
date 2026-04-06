@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import os
 import re
 import signal
@@ -210,6 +211,9 @@ def run_regular_cycle(paths, config, state, trigger: str = "regular") -> tuple[b
     state["last_trigger"] = trigger
     if trigger == "tensions":
         state["last_tensions_cycle_at"] = iso_now()
+        tp = paths.tensions_path
+        content = tp.read_text(encoding="utf-8").strip() if tp.exists() else ""
+        state["last_tensions_hash"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
     _, after_max_seq = recent_self_posts(paths, config)
     if after_max_seq > bundle.self_post_max_seq:
         state["consecutive_cycles_without_post"] = 0

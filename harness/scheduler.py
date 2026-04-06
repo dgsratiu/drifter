@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -68,6 +69,21 @@ def _has_tensions(paths) -> bool:
     """Check if the agent has non-empty tensions."""
     tp = paths.tensions_path
     return tp.exists() and bool(tp.read_text(encoding="utf-8").strip())
+
+
+def _tensions_hash(paths) -> str:
+    """SHA256 hex digest of stripped tensions file content."""
+    tp = paths.tensions_path
+    content = tp.read_text(encoding="utf-8").strip() if tp.exists() else ""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _tensions_changed(paths, state: dict) -> bool:
+    """True if tensions content differs from the last tensions cycle."""
+    previous = state.get("last_tensions_hash")
+    if not previous:
+        return True  # first run — always trigger
+    return _tensions_hash(paths) != previous
 
 
 def _tensions_cooldown_elapsed(state: dict, hours: int = 4) -> bool:
@@ -153,9 +169,11 @@ def main() -> None:
 
         # Priority 2.5: tensions exist (with dream-interval cooldown)
         if _has_tensions(paths) and _tensions_cooldown_elapsed(state):
-            _log("tensions need attention")
-            _run_worker(args.agent, trigger="tensions")
-            return
+            if _tensions_changed(paths, state):
+                _log("tensions need attention")
+                _run_worker(args.agent, trigger="tensions")
+                return
+            _log("tensions unchanged since last cycle, skipping")
 
         # Priority 3: dream deadline passed → dream cycle
         if _dream_due(state):
