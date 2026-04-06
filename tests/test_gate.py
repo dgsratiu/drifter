@@ -236,6 +236,8 @@ class TestCargoCheck:
 
     def test_invalid_rust_fails(self, tmp_path):
         """Invalid Rust code should fail cargo check."""
+        if not shutil.which("cargo"):
+            pytest.skip("cargo not on PATH")
         _init_drifter_repo(tmp_path)
 
         # Modify main.rs with invalid Rust
@@ -250,6 +252,8 @@ class TestCargoCheck:
 
     def test_missing_function_fails(self, tmp_path):
         """Rust code calling a non-existent function should fail."""
+        if not shutil.which("cargo"):
+            pytest.skip("cargo not on PATH")
         _init_drifter_repo(tmp_path)
 
         (tmp_path / "rust" / "src" / "main.rs").write_text(
