@@ -27,7 +27,7 @@ OpenCode's `external_directory` config only restricts file tools (Read, Write, E
 
 ## Prompt construction
 
-- When the scheduler already knows the trigger type (inbox, rejected, dream), build the worker prompt to reflect that decision — suppress irrelevant sections (e.g., channel deltas for a rejected-branch trigger) rather than relying on the model to ignore them. The trigger flows from scheduler (`--trigger`) through worker to `compile_regular_prompt(trigger=...)`.
+- When the scheduler already knows the trigger type (inbox, rejected, tensions, dream), build the worker prompt to reflect that decision — suppress irrelevant sections (e.g., channel deltas for a rejected-branch trigger) rather than relying on the model to ignore them. The trigger flows from scheduler (`--trigger`) through worker to `compile_regular_prompt(trigger=...)`.
 
 ## Testing
 
