@@ -46,9 +46,11 @@ rust/target/
 # OS
 .DS_Store
 
-# Internal plans
+# Internal plans and analysis
 docs/plan-semantic-recall.md
 docs/autobot-architecture-comparison.md
+docs/autoagent-analysis.md
+docs/plan-boundary-markers-and-overfitting-guard.md
 
 # Secrets
 drifter.toml

@@ -2,8 +2,20 @@ use anyhow::Result;
 use std::path::Path;
 use tokio::process::Command;
 
+/// Extract the agent name from a branch like `agent/<name>/<topic>` or `agent/worktree/<name>`.
+fn agent_from_branch(branch: &str) -> Option<&str> {
+    let rest = branch.strip_prefix("agent/")?;
+    let mut parts = rest.splitn(3, '/');
+    let first = parts.next()?;
+    if first == "worktree" {
+        parts.next()
+    } else {
+        Some(first)
+    }
+}
+
 /// Run the quality gate. Exits 0 on pass, 1 on fail.
-pub async fn run(project_root: &Path) -> Result<()> {
+pub async fn run(project_root: &Path, branch_override: Option<&str>) -> Result<()> {
     let mut changed = tracked_changes(project_root).await?;
     changed.extend(untracked_changes(project_root).await?);
     changed.sort();
@@ -20,6 +32,27 @@ pub async fn run(project_root: &Path) -> Result<()> {
         if changed.iter().any(|path| path == immutable) {
             println!("FAIL: immutable file changed {}", immutable);
             passed = false;
+        }
+    }
+
+    // Resolve branch: explicit override (from auto-merge) or detect from git
+    let detected = current_branch(project_root).await.unwrap_or_default();
+    let branch = branch_override.unwrap_or(&detected);
+
+    // Agent sovereignty — agents cannot modify other agents' directories
+    if let Some(branch_agent) = agent_from_branch(branch) {
+        for f in &changed {
+            if let Some(rest) = f.strip_prefix("agents/") {
+                if let Some(file_agent) = rest.split('/').next() {
+                    if !file_agent.is_empty() && file_agent != branch_agent {
+                        println!(
+                            "FAIL: agents cannot modify other agents' files: {}",
+                            f
+                        );
+                        passed = false;
+                    }
+                }
+            }
         }
     }
 
@@ -122,7 +155,6 @@ pub async fn run(project_root: &Path) -> Result<()> {
     }
 
     // 6. New migrations — agents cannot create database migrations (agent/* branches only)
-    let branch = current_branch(project_root).await.unwrap_or_default();
     if branch.starts_with("agent/") {
         for f in new_migrations(project_root).await? {
             println!(

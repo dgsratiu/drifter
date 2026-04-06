@@ -36,3 +36,19 @@ OpenCode's `external_directory` config only restricts file tools (Read, Write, E
 ## Rejected branches tracking
 
 - Auto-merge records `branch sha` pairs in `.drifter/rejected-branches` after REJECT/CONFLICT. Before processing a branch, it checks the file: same SHA = skip (no new commits from agent), different SHA = clear entry and re-process (agent pushed a fix). Entries cleaned on merge success. The scheduler reads this file as a trigger (with 10-min cooldown) so the engineer discovers rejected branches without inbox notifications.
+
+## Architectural invariants
+
+These sections are protected by convention, not by the gate. They compile and pass tests if changed, but break system guarantees. Do not restructure, reorder, or weaken them without Daniel's approval.
+
+- **Priority waterfall ordering** (`scheduler.py` `main()`): inbox > rejected > tensions > dream. Reordering breaks responsiveness — human messages must always preempt.
+- **Cooldown parameters** (`scheduler.py`): 10min for rejected, 4h for tensions. Tuned to prevent re-triggering on unresolvable state.
+- **Environment allowlist** (`worker.py` `opencode_env()`): security boundary. Adding env vars leaks credentials to the LLM subprocess.
+- **Session timeout** (`worker.py` `SESSION_TIMEOUT`): 30min. Must exceed model response time, must not hold the lock so long the scheduler can never run.
+- **Ack on success only** (`worker.py` `run_regular_cycle()`): acking on failure silently drops tasks. Circuit breaker handles persistent failures separately.
+- **Work detection formula** (`memory.py` `compile_regular_prompt()`): `has_work` must match the scheduler's trigger logic or cycles run with no work.
+- **Trigger suppression** (`memory.py` `compile_regular_prompt()`): when the scheduler sets a focused trigger, irrelevant prompt sections are suppressed. Removing this wastes tokens and confuses the model.
+- **Immutable files** (`gate.rs`): constitutional protection for `constitution.md` and `drifter.toml`.
+- **Agent migration restriction** (`gate.rs`): agents cannot create DB migrations — propose via bus instead.
+
+When building from an inbox item or tension, prefer changes that improve the system generally over narrow fixes. Test: "If this exact request disappeared, would this change still be worthwhile?"

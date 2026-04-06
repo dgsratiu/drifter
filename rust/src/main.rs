@@ -141,7 +141,11 @@ enum Commands {
     Unwatch { agent: String, channel: String },
 
     /// Run the quality gate on uncommitted changes
-    Gate,
+    Gate {
+        /// Override branch name (used by auto-merge in detached worktrees)
+        #[arg(long)]
+        branch: Option<String>,
+    },
 
     /// Check file access policy
     PolicyCheck { agent: String, path: String },
@@ -176,7 +180,7 @@ async fn main() -> Result<()> {
 
     // Commands that don't need a database connection
     match &cli.command {
-        Commands::Gate => return gate::run(&project_root).await,
+        Commands::Gate { ref branch } => return gate::run(&project_root, branch.as_deref()).await,
         Commands::PolicyCheck { agent, path } => {
             return policy::check(agent, path, &project_root)
         }
@@ -434,7 +438,7 @@ async fn main() -> Result<()> {
         }
 
         // These are handled above before DB connection
-        Commands::Gate | Commands::PolicyCheck { .. } | Commands::Notify { .. } => {
+        Commands::Gate { .. } | Commands::PolicyCheck { .. } | Commands::Notify { .. } => {
             unreachable!()
         }
     }

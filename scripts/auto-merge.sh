@@ -58,7 +58,7 @@ merge_branch() {
   fi
 
   export DRIFTER_BIN="$drifter_bin"
-  if ! gate_output=$(cd "$gate_tree" && "$drifter_bin" gate 2>&1); then
+  if ! gate_output=$(cd "$gate_tree" && "$drifter_bin" gate --branch "$branch" 2>&1); then
     post_engineering_error "$(printf 'auto-merge REJECT %s: gate failed\n%s' "$branch" "$(trim_output "$gate_output")")"
     printf '%s %s\n' "$branch" "$(git -C "$REPO_ROOT" rev-parse "$branch")" >> "$STATE_DIR/rejected-branches"
     return

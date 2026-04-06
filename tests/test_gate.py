@@ -77,14 +77,12 @@ def _init_drifter_repo(root):
     _run("git commit -m 'initial'", root)
 
 
-def _gate(root):
+def _gate(root, branch=None):
     """Run `drifter gate` in the given directory. Returns CompletedProcess."""
-    return subprocess.run(
-        [DRIFTER_BIN, "gate"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-    )
+    cmd = [DRIFTER_BIN, "gate"]
+    if branch:
+        cmd.extend(["--branch", branch])
+    return subprocess.run(cmd, cwd=root, capture_output=True, text=True)
 
 
 # ---------------------------------------------------------------------------
@@ -309,3 +307,75 @@ class TestNoChanges:
         result = _gate(tmp_path)
         assert result.returncode == 0
         assert "PASS" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Test: agent sovereignty — agents cannot modify other agents' files
+# ---------------------------------------------------------------------------
+
+class TestAgentSovereignty:
+    """Verify that agent branches cannot modify other agents' directories."""
+
+    def test_agent_own_files_pass(self, tmp_path):
+        """An agent branch modifying its own files should pass."""
+        _init_drifter_repo(tmp_path)
+
+        agent_dir = tmp_path / "agents" / "engineer"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "session.md").write_text("# Session\n")
+        _run("git add agents/", tmp_path)
+
+        result = _gate(tmp_path, branch="agent/engineer/fix-session")
+        assert result.returncode == 0, f"stdout: {result.stdout}"
+
+    def test_agent_other_files_fail(self, tmp_path):
+        """An agent branch modifying another agent's files should fail."""
+        _init_drifter_repo(tmp_path)
+
+        other_dir = tmp_path / "agents" / "sales-strategist"
+        other_dir.mkdir(parents=True)
+        (other_dir / "AGENTS.md").write_text("# Sales\n")
+        _run("git add agents/", tmp_path)
+
+        result = _gate(tmp_path, branch="agent/engineer/create-agents")
+        assert result.returncode == 1, f"stdout: {result.stdout}"
+        assert "agents cannot modify other agents' files" in result.stdout
+
+    def test_agent_shared_code_pass(self, tmp_path):
+        """An agent branch modifying shared code (not agents/) should pass."""
+        _init_drifter_repo(tmp_path)
+
+        harness_dir = tmp_path / "harness"
+        harness_dir.mkdir(parents=True)
+        (harness_dir / "__init__.py").write_text("")
+        (harness_dir / "utils.py").write_text("x = 1\n")
+        _run("git add harness/", tmp_path)
+
+        result = _gate(tmp_path, branch="agent/engineer/add-utils")
+        assert result.returncode == 0, f"stdout: {result.stdout}"
+
+    def test_non_agent_branch_can_modify_any(self, tmp_path):
+        """A non-agent branch (human/Daniel) can modify any agent's files."""
+        _init_drifter_repo(tmp_path)
+
+        agent_dir = tmp_path / "agents" / "engineer"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "session.md").write_text("# Session\n")
+        _run("git add agents/", tmp_path)
+
+        # No --branch flag, or a non-agent branch
+        result = _gate(tmp_path, branch="main")
+        assert result.returncode == 0, f"stdout: {result.stdout}"
+
+    def test_agent_migration_rejected_with_branch_flag(self, tmp_path):
+        """Migration restriction works via --branch flag (detached worktree fix)."""
+        _init_drifter_repo(tmp_path)
+
+        (tmp_path / "rust" / "migrations" / "20240201000000_new.sql").write_text(
+            "CREATE TABLE new (id INTEGER PRIMARY KEY);\n"
+        )
+        _run("git add rust/migrations/", tmp_path)
+
+        result = _gate(tmp_path, branch="agent/engineer/add-migration")
+        assert result.returncode == 1, f"stdout: {result.stdout}"
+        assert "agents cannot create database migrations" in result.stdout

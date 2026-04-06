@@ -254,11 +254,14 @@ class TestMainCLI:
         transcript_dir.mkdir()
         (transcript_dir / "meeting.md").write_text("notes")
 
+        # Use a temp state path so the real project's state file doesn't interfere
+        state_path = tmp_path / ".drifter" / "transcripts-gateway.state"
         with patch.object(transcripts.sys, "argv", ["transcripts.py", "--directory", str(transcript_dir), "--dry-run"]):
-            result = transcripts.main()
-            assert result == 0
-            captured = capsys.readouterr()
-            assert "meeting.md" in captured.out
+            with patch.object(transcripts, "load_state", return_value=set()):
+                result = transcripts.main()
+                assert result == 0
+                captured = capsys.readouterr()
+                assert "meeting.md" in captured.out
 
     def test_dry_run_no_post(self, tmp_path):
         """--dry-run should not call run_drifter."""
@@ -281,11 +284,12 @@ class TestMainCLI:
         state_dir.mkdir()
 
         with patch.object(transcripts.sys, "argv", ["transcripts.py", "--directory", str(transcript_dir)]):
-            with patch.object(transcripts, "run_drifter") as mock_run:
-                mock_run.return_value = ""
-                result = transcripts.main()
-                assert result == 0
-                mock_run.assert_called_once()
+            with patch.object(transcripts, "load_state", return_value=set()):
+                with patch.object(transcripts, "run_drifter") as mock_run:
+                    mock_run.return_value = ""
+                    result = transcripts.main()
+                    assert result == 0
+                    mock_run.assert_called_once()
 
     def test_custom_channel(self, tmp_path):
         """--channel flag should override default channel."""
@@ -298,11 +302,12 @@ class TestMainCLI:
             "--directory", str(transcript_dir),
             "--channel", "archive",
         ]):
-            with patch.object(transcripts, "run_drifter") as mock_run:
-                mock_run.return_value = ""
-                transcripts.main()
-                call_args = mock_run.call_args[0]
-                assert call_args[2] == "archive"
+            with patch.object(transcripts, "load_state", return_value=set()):
+                with patch.object(transcripts, "run_drifter") as mock_run:
+                    mock_run.return_value = ""
+                    transcripts.main()
+                    call_args = mock_run.call_args[0]
+                    assert call_args[2] == "archive"
 
     def test_skips_already_posted(self, tmp_path):
         """Should not re-post files already in state."""
