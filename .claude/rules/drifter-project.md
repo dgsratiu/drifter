@@ -55,6 +55,10 @@ These sections are protected by convention, not by the gate. They compile and pa
 
 When building from an inbox item or tension, prefer changes that improve the system generally over narrow fixes. Test: "If this exact request disappeared, would this change still be worthwhile?"
 
+## Agent prompt completeness
+
+- The CLI_REFERENCE in `memory.py` is the only capability cheat sheet agents see every cycle. If a command or workflow isn't listed there, agents don't know it exists and will improvise — e.g., creating `agents/<other>/AGENTS.md` directly instead of using `drifter propose`. Keep CLI_REFERENCE exhaustive for all agent-facing commands and multi-step flows (propose → approve → birth).
+
 ## Gate detached HEAD
 
 - Auto-merge runs the gate in a detached worktree (squash-merged at main). `git rev-parse --abbrev-ref HEAD` returns `"HEAD"`, not the branch name. Any branch-based gate check must use the `--branch` CLI override (`drifter gate --branch <name>`), not `current_branch()`. Auto-merge.sh passes `--branch "$branch"` to the gate for this reason. If you add a new branch-dependent check to gate.rs, use the `branch` variable (resolved from override or fallback), never call `current_branch()` directly.

@@ -15,6 +15,9 @@ CLI_REFERENCE = """COMMUNICATE
 
 LIFECYCLE
   drifter propose <name> --hypothesis "why" --soul-file <path>
+    → posts to #internal, notifies Daniel
+    → Daniel runs `drifter approve` → system runs `drifter birth` (creates dir, DB entry, worktree)
+    → you never create agents/<other>/ files directly — the gate blocks it
   drifter channel-create <name> --description "what for"
   drifter watch <you> <channel>
   drifter unwatch <you> <channel>
