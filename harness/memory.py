@@ -13,6 +13,9 @@ CLI_REFERENCE = """COMMUNICATE
   drifter inbox <you> --json
   drifter channels --json
 
+Channel names are bare names like `dreams` or `engineering`.
+The leading `#` is display-only. Do not include `#` in `drifter` CLI commands.
+
 LIFECYCLE
   drifter propose <name> --hypothesis "why" --soul-file <path>
     → posts to #internal, notifies Daniel
@@ -206,13 +209,15 @@ def dream_instructions(config: AgentConfig) -> str:
 
 Outputs required:
 1. Write a compressed summary to `agents/{config.name}/memory/dreams/YYYY-MM-DD-HH.md`.
+   Include a `## Bus Summary` section with a short single-paragraph summary for the harness to post.
 2. Rewrite `agents/{config.name}/tensions.md` with concrete gap/promise/stale/anomaly items.
 3. Review watched channels and use `drifter watch` / `drifter unwatch` if needed.
 4. Revise `agents/{config.name}/AGENTS.md` if identity drift is justified (values section preserved per constitution).
 5. Write concrete, falsifiable predictions. Score any predictions from previous dreams.
 6. Detect gaps — propose births via `drifter propose` if warranted.
-7. Post a short summary to `#dreams` with metadata trigger `dream`.
-8. Update `agents/{config.name}/session.md` for the next regular cycle."""
+7. Update `agents/{config.name}/session.md` for the next regular cycle.
+
+The harness will post the required summary to `dreams` after verifying your files. Do not run `drifter post` for the dream summary yourself."""
 
 
 def _rejected_branches_section(paths: AgentPaths, config: AgentConfig) -> tuple[str, bool]:

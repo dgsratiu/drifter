@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import json
 import os
 import re
 import signal
@@ -26,6 +27,10 @@ from harness.memory import compile_dream_prompt, compile_regular_prompt, recent_
 
 SESSION_TIMEOUT = 1800  # 30 minutes
 MAX_CONSECUTIVE_FAILURES = 3
+
+
+class DreamCycleError(RuntimeError):
+    """Raised when a dream cycle exits without producing required outputs."""
 
 
 def _log(agent: str, msg: str) -> None:
@@ -138,6 +143,79 @@ def _tee_output(proc, log_file):
         log_file.write(_sanitize_log(chunk))
 
 
+def _current_dream_path(paths, now: datetime | None = None) -> Path:
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d-%H")
+    return paths.dreams_dir / f"{stamp}.md"
+
+
+def _file_hash(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
+
+
+def _extract_dream_bus_summary(dream_path: Path, limit: int = 280) -> str:
+    text = dream_path.read_text(encoding="utf-8").strip()
+    if not text:
+        raise DreamCycleError(f"{dream_path} is empty")
+
+    bus_match = re.search(
+        r"^## Bus Summary\s*\n(?P<body>.*?)(?:\n## |\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    summary_match = re.search(
+        r"^## Summary\s*\n(?P<body>.*?)(?:\n## |\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if bus_match:
+        body = bus_match.group("body")
+    elif summary_match:
+        body = summary_match.group("body")
+    else:
+        body = " ".join(
+            line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")
+        )
+
+    summary = " ".join(body.split()).strip()
+    if not summary:
+        raise DreamCycleError(f"could not extract bus summary from {dream_path}")
+    return summary[:limit]
+
+
+def _post_dream_summary(paths, agent: str, dream_path: Path) -> None:
+    run_drifter(
+        paths.project_root,
+        "post",
+        "dreams",
+        _extract_dream_bus_summary(dream_path),
+        "--agent",
+        agent,
+        "--metadata",
+        json.dumps({"trigger": "dream"}),
+    )
+
+
+def _verify_dream_outputs(paths, dream_path: Path, pre_dream_hash: str | None,
+                          pre_tensions_hash: str | None, pre_session_hash: str | None) -> None:
+    errors: list[str] = []
+
+    if not dream_path.exists():
+        errors.append(f"missing dream artifact {dream_path.relative_to(paths.project_root)}")
+    elif _file_hash(dream_path) == pre_dream_hash:
+        errors.append(f"dream artifact unchanged at {dream_path.relative_to(paths.project_root)}")
+
+    if _file_hash(paths.tensions_path) == pre_tensions_hash:
+        errors.append(f"{paths.tensions_path.relative_to(paths.project_root)} was not updated")
+
+    if _file_hash(paths.session_path) == pre_session_hash:
+        errors.append(f"{paths.session_path.relative_to(paths.project_root)} was not updated")
+
+    if errors:
+        raise DreamCycleError("; ".join(errors))
+
+
 def run_opencode_cycle(project_root: Path, agent: str, model: str, prompt: str, working_dir: Path | None = None) -> None:
     log_dir = project_root / ".drifter" / "logs" / agent
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -226,19 +304,21 @@ def run_regular_cycle(paths, config, state, trigger: str = "regular") -> tuple[b
 def run_dream_cycle(paths, config, state) -> int:
     """Returns posts this cycle."""
     prompt = compile_dream_prompt(paths, config)
-    _, before_max_seq = recent_self_posts(paths, config)
     working_dir = resolve_working_dir(paths)
+    dream_path = _current_dream_path(paths)
+    pre_dream_hash = _file_hash(dream_path)
+    pre_tensions_hash = _file_hash(paths.tensions_path)
+    pre_session_hash = _file_hash(paths.session_path)
     run_opencode_cycle(paths.project_root, config.name, config.dream_model, prompt, working_dir)
+    _verify_dream_outputs(paths, dream_path, pre_dream_hash, pre_tensions_hash, pre_session_hash)
+    _post_dream_summary(paths, config.name, dream_path)
     state["last_dream_at"] = iso_now()
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
     _, after_max_seq = recent_self_posts(paths, config)
-    if after_max_seq > before_max_seq:
-        state["consecutive_cycles_without_post"] = 0
-        state["last_post_seq"] = after_max_seq
-        return 1
-    state["consecutive_cycles_without_post"] = int(state.get("consecutive_cycles_without_post", 0)) + 1
-    return 0
+    state["consecutive_cycles_without_post"] = 0
+    state["last_post_seq"] = after_max_seq
+    return 1
 
 
 # ── Entry point ──────────────────────────────────────────────────────────
@@ -296,7 +376,7 @@ def run(agent: str, dream: bool = False, trigger: str = "regular") -> int:
             metrics.record_metrics(cycle_id)
             if metrics.is_stuck():
                 metrics.notify_stuck(paths.project_root)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, DreamCycleError) as exc:
         state["worker_status"] = "error"
         state["last_error_at"] = iso_now()
         state["last_error"] = (getattr(exc, "stderr", None) or "").strip() or str(exc)
