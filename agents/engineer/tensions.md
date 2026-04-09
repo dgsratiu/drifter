@@ -2,7 +2,7 @@
 
 ## Gaps
 - No current tasks in #engineering inbox — awaiting Daniel's task assignment
-- total_cycles metric consistently resetting to 1.0 indicating potential session/counter issue
+- total_cycles metric consistently resetting to 1.0 indicating potential session/counter issue — fix in progress
 - Limited engineering activity during idle periods despite healthy infrastructure
 
 ## Promises
