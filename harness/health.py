@@ -83,28 +83,25 @@ class CycleMetrics:
         """Load the latest metrics from the database to avoid resetting counters."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                # Get the most recent value for each metric we track
-                for metric, attr in [
-                    ('cycle_duration_s', 'last_cycle_duration'),
-                    ('consecutive_silent', 'consecutive_silent'),
-                    ('total_cycles', 'total_cycles'),
-                    ('total_posts', 'total_posts')
-                ]:
-                    cursor = conn.execute(
-                        """
-                        SELECT value FROM metrics 
-                        WHERE agent_name = ? AND metric = ?
-                        ORDER BY created_at DESC LIMIT 1
-                        """,
-                        (self.agent_name, metric),
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        value = float(row[0])
-                        if attr == 'consecutive_silent' or attr == 'total_cycles' or attr == 'total_posts':
-                            setattr(self, attr, int(value))
-                        else:
-                            setattr(self, attr, value)
+                # Get the most recent cycle's metrics
+                cursor = conn.execute(
+                    """
+                    SELECT metric, value FROM metrics 
+                    WHERE agent_name = ? 
+                    ORDER BY created_at DESC LIMIT 4
+                    """,
+                    (self.agent_name,),
+                )
+                rows = cursor.fetchall()
+                for metric, value in rows:
+                    if metric == 'cycle_duration_s':
+                        self.last_cycle_duration = float(value)
+                    elif metric == 'consecutive_silent':
+                        self.consecutive_silent = int(value)
+                    elif metric == 'total_cycles':
+                        self.total_cycles = int(value)
+                    elif metric == 'total_posts':
+                        self.total_posts = int(value)
         except sqlite3.Error:
             pass  # If we can't load, start from 0
 
