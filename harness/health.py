@@ -77,6 +77,33 @@ class CycleMetrics:
         self.total_posts = 0
         self._cycle_start: float = 0.0
         self.last_cycle_duration: float = 0.0
+        self._load_latest_totals()
+
+    def _load_latest_totals(self) -> None:
+        """Load the latest metrics from the database to avoid resetting counters."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Get the most recent cycle's metrics
+                cursor = conn.execute(
+                    """
+                    SELECT metric, value FROM metrics 
+                    WHERE agent_name = ? 
+                    ORDER BY created_at DESC LIMIT 4
+                    """,
+                    (self.agent_name,),
+                )
+                rows = cursor.fetchall()
+                for metric, value in rows:
+                    if metric == 'cycle_duration_s':
+                        self.last_cycle_duration = float(value)
+                    elif metric == 'consecutive_silent':
+                        self.consecutive_silent = int(value)
+                    elif metric == 'total_cycles':
+                        self.total_cycles = int(value)
+                    elif metric == 'total_posts':
+                        self.total_posts = int(value)
+        except sqlite3.Error:
+            pass  # If we can't load, start from 0
 
     def cycle_start(self) -> None:
         self._cycle_start = time.monotonic()
