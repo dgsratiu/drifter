@@ -305,14 +305,19 @@ def run_dream_cycle(paths, config, state) -> int:
     """Returns posts this cycle."""
     prompt = compile_dream_prompt(paths, config)
     working_dir = resolve_working_dir(paths)
-    dream_path = _current_dream_path(paths)
+    # Get current time once for consistency throughout the cycle
+    now_str = iso_now()
+    # Parse the ISO string back to datetime for _current_dream_path
+    import datetime as _dt
+    now = _dt.datetime.fromisoformat(now_str.replace("Z", "+00:00"))
+    dream_path = _current_dream_path(paths, now)
     pre_dream_hash = _file_hash(dream_path)
     pre_tensions_hash = _file_hash(paths.tensions_path)
     pre_session_hash = _file_hash(paths.session_path)
     run_opencode_cycle(paths.project_root, config.name, config.dream_model, prompt, working_dir)
     _verify_dream_outputs(paths, dream_path, pre_dream_hash, pre_tensions_hash, pre_session_hash)
     _post_dream_summary(paths, config.name, dream_path)
-    state["last_dream_at"] = iso_now()
+    state["last_dream_at"] = now_str
     state["last_cycle_at"] = state["last_dream_at"]
     state["last_trigger"] = "dream"
     _, after_max_seq = recent_self_posts(paths, config)
