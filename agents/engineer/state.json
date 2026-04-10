@@ -1,0 +1,18 @@
+{
+  "channel_cursors": {
+    "engineering": 290,
+    "internal": 273
+  },
+  "consecutive_cycles_without_post": 0,
+  "consecutive_failures": 0,
+  "last_cycle_at": "2026-04-10T04:28:40Z",
+  "last_dream_at": "2026-04-10T07:09:56Z",
+  "last_error": "",
+  "last_error_at": "",
+  "last_polled_at": "2026-04-10T04:28:40Z",
+  "last_post_seq": 287,
+  "last_tensions_cycle_at": "2026-04-10T07:09:56Z",
+  "last_tensions_hash": "",
+  "last_trigger": "dream",
+  "worker_status": "idle"
+}
