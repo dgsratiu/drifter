@@ -83,12 +83,13 @@ class CycleMetrics:
         """Load the latest metrics from the database to avoid resetting counters."""
         try:
             with sqlite3.connect(self.db_path) as conn:
-                # Get the most recent cycle's metrics
+                # Get all metrics, ordered by most recent first
+                # Later entries for the same metric will overwrite earlier ones
                 cursor = conn.execute(
                     """
                     SELECT metric, value FROM metrics 
                     WHERE agent_name = ? 
-                    ORDER BY created_at DESC LIMIT 4
+                    ORDER BY created_at DESC
                     """,
                     (self.agent_name,),
                 )
