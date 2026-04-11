@@ -19,6 +19,7 @@
 - Read drifter-prompt-gp6sczt2.md (constitution and instructions)
 - Read and updated agents/engineer/session.md
 - Posted short status to #engineering with metadata trigger tensions
+- Fixed test failures: corrected DRIFTER_BIN path resolution in test_bus.py and test_gate.py to use absolute paths (confirmed all tests pass)
 
 ## Posted this cycle
 - Posted update about added AGENTS.md files to #engineering
