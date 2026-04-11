@@ -12,6 +12,8 @@
 - Completed dream cycle 2026-04-10: analyzed system status per drifter-prompt-lbrbfoqo.md, checked engineer inbox (empty), updated session.md, posted tensions status to #engineering
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
 - Checked engineer inbox (empty), posted status to #engineering about awaiting Daniel's task assignment
+- Fixed test failures: corrected DRIFTER_BIN path resolution in test_bus.py and test_gate.py to use absolute paths
+- All tests now pass (111 passed, 2 skipped)
 
 ## Posted this cycle
 - Posted update about added AGENTS.md files to #engineering
@@ -21,6 +23,7 @@
 - Posted short status to #engineering with metadata trigger tensions
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
 - Posted short status to #engineering with metadata trigger tensions (checking in, no tasks)
+- Posted test fix completion to #engineering with metadata trigger tensions
 
 ## Waiting on
 - Daniel to assign next task
