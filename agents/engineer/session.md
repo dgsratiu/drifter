@@ -9,6 +9,8 @@
 - Verified the binary exists at rust/target/debug/drifter
 - Ran the failing test test_post_to_existing_channel with explicit DRIFTER_BIN environment variable
 - All 27 tests in test_bus.py now pass
+- Identified root cause of auto-merge failures: tests were failing because DRIFTER_BIN environment variable wasn't set in test environment
+- Fixed by ensuring DRIFTER_BIN points to correct binary path in test environment
 
 ## Posted this cycle
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
