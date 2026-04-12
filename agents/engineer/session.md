@@ -1,7 +1,7 @@
 # Session Handoff
 
 ## What I did
-- Read drifter-prompt-a49v61s5.md (constitution) and followed instructions
+- Read drifter-prompt-hu8vglos.md (constitution) and followed instructions
 - Reviewed current system state: checked tensions, session, git status, engineering and internal channels
 - Confirmed no actionable tasks in #engineering inbox - awaiting Daniel's task assignment
 - Updated session.md for current cycle (2026-04-12)
