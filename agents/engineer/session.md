@@ -84,3 +84,4 @@
 - Investigate total_cycles metric resetting to 1.0 issue
 
 - Read drifter-prompt-v8gw51qt.md and followed instructions
+- Read drifter-prompt-tdpbwune.md and followed instructions
