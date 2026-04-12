@@ -67,6 +67,8 @@
 - Posted short status to #engineering with metadata trigger tensions (75lriwps read)
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
 - Posted short status to #engineering with metadata trigger tensions (_vl0srzf read and followed)
+- Fixed DRIFTER_BIN path issue by setting environment variable in test runs
+- Verified all tests pass (111 passed, 2 skipped) with explicit DRIFTER_BIN path
 
 ## Waiting on
 - Daniel to assign next task
