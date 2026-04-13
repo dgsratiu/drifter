@@ -82,7 +82,9 @@ def _gate(root, branch=None):
     cmd = [DRIFTER_BIN, "gate"]
     if branch:
         cmd.extend(["--branch", branch])
-    return subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+    env = os.environ.copy()
+    env["DRIFTER_BIN"] = DRIFTER_BIN
+    return subprocess.run(cmd, cwd=root, capture_output=True, text=True, env=env)
 
 
 # ---------------------------------------------------------------------------
