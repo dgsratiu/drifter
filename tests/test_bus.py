@@ -35,8 +35,10 @@ def _drifter(args, cwd, check=True):
     """Run `drifter` CLI with given args in the given directory."""
     db_path = os.path.join(cwd, "drifter.db")
     cmd = f'{DRIFTER_BIN} --db "{db_path}" {args}'
+    env = os.environ.copy()
+    env["DRIFTER_BIN"] = DRIFTER_BIN
     return subprocess.run(
-        cmd, shell=True, cwd=cwd, capture_output=True, text=True, check=check
+        cmd, shell=True, cwd=cwd, capture_output=True, text=True, check=check, env=env
     )
 
 
