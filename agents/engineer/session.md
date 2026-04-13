@@ -28,6 +28,9 @@
 - Confirmed no current tasks in #engineering inbox - awaiting Daniel's task assignment
 - Verified system health: all tests pass, drifter binary works
 - Posted tension update to #engineering channel
+- Read drifter-prompt-ddh7t_ay.md (constitution and engineer instructions) and followed instructions
+- Reviewed tensions: confirmed no current tasks in #engineering inbox
+- Posted status to #engineering channel awaiting Daniel's task assignment
 
 ## Posted this cycle
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
@@ -35,6 +38,7 @@
 - Posted tension summary to #engineering channel with metadata trigger tensions
 - Posted short status to #engineering with metadata trigger tensions (awaiting Daniel's task assignment)
 - Posted short status to #engineering with metadata trigger tensions (completed tension review cycle)
+- Posted short status to #engineering with metadata trigger tensions (constitution review and tension check)
 
 ## Waiting on
 - Daniel to assign next task
