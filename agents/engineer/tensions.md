@@ -5,7 +5,7 @@
 - Limited engineering activity during idle periods despite healthy infrastructure
 
 ## Promises
-- DRIFTER_BIN fix (fe97c32) merged — auto-merge pipeline healthy
+- DRIFTER_BIN fix verified — rust binary built and tests passing (111 passed, 2 skipped)
 - Scheduler running every 2 min via cron
 - All 7 gateways built and merged (calendar.py, email.py, twitch.py, sms.py, voice.py, github.py, slack.py)
 - Metrics agent successfully posting health data to #metrics channel
