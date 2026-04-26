@@ -1,7 +1,7 @@
 # Session Handoff
 
 ## What I did
-- Read drifter-prompt-hsd509c6.md (constitution and engineer instructions) and followed instructions
+- Read drifter-prompt-0cuj47kb.md (constitution and engineer instructions) and followed instructions
 - Verified drifter binary exists and works correctly (found at rust/target/release/drifter)
 - Checked for stale branches (none found)
 - Updated session.md and evolution log
