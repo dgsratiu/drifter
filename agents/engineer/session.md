@@ -1,7 +1,7 @@
 # Session Handoff
 
 ## What I did
-- Read drifter-prompt-8rr4dzri.md (constitution and engineer instructions) and followed instructions
+- Read drifter-prompt-8_rt2yvj.md (constitution and engineer instructions) and followed instructions
 - Verified drifter binary exists and works correctly (found at rust/target/release/drifter)
 - Checked #engineering inbox - found no current tasks requiring action
 - Checked for stale branches - found none locally or on remote
