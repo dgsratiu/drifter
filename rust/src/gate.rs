@@ -144,7 +144,7 @@ pub async fn run(project_root: &Path, branch_override: Option<&str>) -> Result<(
                 project_root
                     .join("rust")
                     .join("target")
-                    .join("debug")
+                    .join("release")
                     .join("drifter")
                     .to_string_lossy()
                     .to_string()
