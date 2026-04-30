@@ -127,42 +127,51 @@ pub async fn run(project_root: &Path, branch_override: Option<&str>) -> Result<(
         }
     }
 
-    // 4. Run pytest if test files exist
-    let test_dir = project_root.join("tests");
-    if test_dir.is_dir() {
-        let has_tests = std::fs::read_dir(&test_dir)?
-            .filter_map(|e| e.ok())
-            .any(|e| {
-                e.path()
-                    .extension()
-                    .map_or(false, |ext| ext == "py")
-            });
+     // 4. Run pytest if test files exist
+     let test_dir = project_root.join("tests");
+     if test_dir.is_dir() {
+         let has_tests = std::fs::read_dir(&test_dir)?
+             .filter_map(|e| e.ok())
+             .any(|e| {
+                 e.path()
+                     .extension()
+                     .map_or(false, |ext| ext == "py")
+             });
 
-        if has_tests {
-            print!("Running tests... ");
-            let drifter_bin = std::env::var("DRIFTER_BIN").unwrap_or_else(|_| {
-                project_root
-                    .join("rust")
-                    .join("target")
-                    .join("release")
-                    .join("drifter")
-                    .to_string_lossy()
-                    .to_string()
-            });
-            let status = Command::new("python3")
-                .args(["-m", "pytest", "tests/", "-x", "--timeout=60", "-q"])
-                .current_dir(project_root)
-                .env("DRIFTER_BIN", &drifter_bin)
-                .status()
-                .await?;
-            if status.success() {
-                println!("ok");
-            } else {
-                println!("FAIL");
-                passed = false;
-            }
-        }
-    }
+         if has_tests {
+             print!("Running tests... ");
+             let drifter_bin = std::env::var("DRIFTER_BIN")
+                 .ok()
+                 .and_then(|path| {
+                     if std::fs::metadata(&path).is_ok() {
+                         Some(path)
+                     } else {
+                         None
+                     }
+                 })
+                 .unwrap_or_else(|| {
+                     project_root
+                         .join("rust")
+                         .join("target")
+                         .join("release")
+                         .join("drifter")
+                         .to_string_lossy()
+                         .to_string()
+                 });
+             let status = Command::new("python3")
+                 .args(["-m", "pytest", "tests/", "-x", "--timeout=60", "-q"])
+                 .current_dir(project_root)
+                 .env("DRIFTER_BIN", &drifter_bin)
+                 .status()
+                 .await?;
+             if status.success() {
+                 println!("ok");
+             } else {
+                 println!("FAIL");
+                 passed = false;
+             }
+         }
+     }
 
     // 5. Migration immutability — modified (not created) migrations are rejected
     for f in modified_migrations(project_root).await? {
