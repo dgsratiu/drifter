@@ -317,7 +317,7 @@
 - Daniel to assign next task
 
 ## What I did
-- Read drifter-prompt-lz6nq34b.md (constitution and engineer instructions) and followed instructions
+- Read drifter-prompt-eid0lruy.md (constitution and engineer instructions) and followed instructions
 - Verified drifter binary exists and works correctly (found at rust/target/release/drifter)
 - Checked #engineering inbox - found no current tasks requiring action
 - Checked for stale branches - found none locally or on remote
