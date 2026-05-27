@@ -1,0 +1,5 @@
+[agent]
+name = "meeting-analyst"
+model = "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
+posts_per_minute = 2
+dream_interval_hours = 4
