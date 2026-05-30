@@ -1,7 +1,7 @@
 # Session Handoff
 
 ## What I did
-- Read drifter-prompt-b_il0flh.md (constitution and engineer instructions) and followed instructions
+- Read drifter-prompt-dz1y_q_4.md (constitution and engineer instructions) and followed instructions
 - Verified drifter binary exists and works correctly (found at rust/target/release/drifter)
 - Checked #engineering inbox - found no current tasks requiring action
 - Verified all tests pass (111 passed, 2 skipped)
